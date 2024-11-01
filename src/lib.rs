@@ -5,24 +5,27 @@ use std::path::Path;
 
 // use memmap2::Mmap;
 
-struct DumpTimestep {
+pub struct DumpTimestep {
     start: usize,
     atom_count: usize,
 }
 
-struct Dump {
+pub struct Dump {
     atoms: Vec<f64>,
-    timesteps: HashMap<u64, DumpTimestep>,
+    pub timesteps: HashMap<u64, DumpTimestep>,
     keys: HashMap<String, usize>,
 }
 
-enum DumpParsingError {
+#[derive(Debug)]
+pub enum DumpParsingError {
     NoTimestep,
     NoNumberOfAtoms,
     DuplicateKeys,
     DuplicateTimesteps,
     IO(io::Error),
     InvalidNumber,
+    MissingAtomRow,
+    InvalidAtomRow,
 }
 
 impl Dump {
@@ -85,10 +88,40 @@ impl Dump {
                             atom_count,
                         },
                     );
+                    dump.atoms.reserve(atom_count * dump.keys.len());
+                    for _ in 0..atom_count {
+                        let Some(atoms) = lines.next() else {
+                            return Err(DumpParsingError::MissingAtomRow);
+                        };
+                        let atoms: Vec<&str> = atoms.split_whitespace().collect();
+                        if atoms.len() != dump.keys.len() {
+                            return Err(DumpParsingError::InvalidAtomRow);
+                        }
+                        for (_, j) in &dump.keys {
+                            dump.atoms.push(
+                                atoms[*j]
+                                    .parse::<f64>()
+                                    .map_err(|_| DumpParsingError::InvalidNumber)?,
+                            );
+                        }
+                    }
                 }
             }
         }
 
         Ok(dump)
+    }
+
+    pub fn get_property(&self, timestep: u64, key: &str) -> &[f64] {
+        let tstep = &self.timesteps[&timestep];
+        let start = tstep.start + self.keys[key] * tstep.atom_count;
+        let end = start + tstep.atom_count;
+        &self.atoms[start..end]
+    }
+
+    pub fn get_keys(&self) -> Vec<&String> {
+        let mut entries: Vec<(&String, &usize)> = self.keys.iter().collect();
+        entries.sort_by(|a, b| a.1.cmp(&b.1));
+        entries.into_iter().map(|i| i.0).collect()
     }
 }
