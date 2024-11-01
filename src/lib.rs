@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::io;
 use std::path::Path;
 
 // use memmap2::Mmap;
@@ -20,11 +21,14 @@ enum DumpParsingError {
     NoNumberOfAtoms,
     DuplicateKeys,
     DuplicateTimesteps,
+    IO(io::Error),
+    InvalidNumber,
 }
 
 impl Dump {
     pub fn new(path: &Path, timesteps: &Vec<u64>) -> Result<Self, DumpParsingError> {
-        let mut lines = fs::read_to_string(path)?.split("\n");
+        let lines = fs::read_to_string(path).map_err(|e| DumpParsingError::IO(e))?;
+        let mut lines = lines.split("\n");
 
         let mut dump = Self {
             atoms: Vec::new(),
@@ -36,13 +40,20 @@ impl Dump {
         let mut atom_count: Option<usize> = None;
         while let Some(line) = lines.next() {
             if line == "ITEM: TIMESTEP" {
-                let timestep = Some(lines.next().ok_or(DumpParsingError::NoTimestep)?.parse()?);
+                timestep = Some(
+                    lines
+                        .next()
+                        .ok_or(DumpParsingError::NoTimestep)?
+                        .parse::<u64>()
+                        .map_err(|_| DumpParsingError::InvalidNumber)?,
+                );
             } else if line == "ITEM: NUMBER OF ATOMS" {
-                let atom_count = Some(
+                atom_count = Some(
                     lines
                         .next()
                         .ok_or(DumpParsingError::NoNumberOfAtoms)?
-                        .parse()?,
+                        .parse::<usize>()
+                        .map_err(|_| DumpParsingError::InvalidNumber)?,
                 );
             } else if line.contains("ITEM: ATOMS") {
                 if dump.keys.is_empty() {
@@ -51,7 +62,7 @@ impl Dump {
                         if dump.keys.contains_key(key) {
                             return Err(DumpParsingError::DuplicateKeys);
                         }
-                        dump.keys[key] = dump.keys.len();
+                        dump.keys.insert(key.to_string(), dump.keys.len());
                     }
                 }
                 let Some(timestep) = timestep else {
@@ -67,11 +78,13 @@ impl Dump {
                     if dump.timesteps.contains_key(&timestep) {
                         return Err(DumpParsingError::DuplicateTimesteps);
                     }
-                    dump.timesteps[&timestep] = DumpTimestep {
-                        start: atom_count * dump.timesteps.len() * dump.keys.len(),
-                        atom_count,
-                    };
-                    ...
+                    dump.timesteps.insert(
+                        timestep,
+                        DumpTimestep {
+                            start: atom_count * dump.timesteps.len() * dump.keys.len(),
+                            atom_count,
+                        },
+                    );
                 }
             }
         }
