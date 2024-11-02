@@ -29,8 +29,8 @@ pub enum DumpParsingError {
 }
 
 impl Dump {
-    pub fn new(path: &Path, timesteps: &Vec<u64>) -> Result<Self, DumpParsingError> {
-        let lines = fs::read_to_string(path).map_err(|e| DumpParsingError::IO(e))?;
+    pub fn new(path: &Path, timesteps: &[u64]) -> Result<Self, DumpParsingError> {
+        let lines = fs::read_to_string(path).map_err(DumpParsingError::IO)?;
         let mut lines = lines.split("\n");
 
         let mut dump = Self {
@@ -77,7 +77,7 @@ impl Dump {
                 if &timestep > timesteps.last().unwrap_or(&u64::MAX) {
                     break;
                 }
-                if timesteps.len() == 0 || timesteps.contains(&timestep) {
+                if timesteps.is_empty() || timesteps.contains(&timestep) {
                     if dump.timesteps.contains_key(&timestep) {
                         return Err(DumpParsingError::DuplicateTimesteps);
                     }
@@ -97,7 +97,7 @@ impl Dump {
                         if tokens.len() != dump.keys.len() {
                             return Err(DumpParsingError::InvalidAtomRow);
                         }
-                        for (_, j) in &dump.keys {
+                        for j in dump.keys.values() {
                             atoms[atom_count * j + i] = tokens[*j]
                                 .parse::<f64>()
                                 .map_err(|_| DumpParsingError::InvalidNumber)?
@@ -120,7 +120,7 @@ impl Dump {
 
     pub fn get_keys(&self) -> Vec<&String> {
         let mut entries: Vec<(&String, &usize)> = self.keys.iter().collect();
-        entries.sort_by(|a, b| a.1.cmp(&b.1));
+        entries.sort_by(|a, b| a.1.cmp(b.1));
         entries.into_iter().map(|i| i.0).collect()
     }
 }
