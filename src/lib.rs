@@ -7,7 +7,7 @@ use std::path::Path;
 
 pub struct DumpTimestep {
     start: usize,
-    atom_count: usize,
+    pub atom_count: usize,
 }
 
 pub struct Dump {
@@ -88,23 +88,22 @@ impl Dump {
                             atom_count,
                         },
                     );
-                    dump.atoms.reserve(atom_count * dump.keys.len());
-                    for _ in 0..atom_count {
-                        let Some(atoms) = lines.next() else {
+                    let mut atoms = vec![0.0; atom_count * dump.keys.len()];
+                    for i in 0..atom_count {
+                        let Some(tokens) = lines.next() else {
                             return Err(DumpParsingError::MissingAtomRow);
                         };
-                        let atoms: Vec<&str> = atoms.split_whitespace().collect();
-                        if atoms.len() != dump.keys.len() {
+                        let tokens: Vec<&str> = tokens.split_whitespace().collect();
+                        if tokens.len() != dump.keys.len() {
                             return Err(DumpParsingError::InvalidAtomRow);
                         }
                         for (_, j) in &dump.keys {
-                            dump.atoms.push(
-                                atoms[*j]
-                                    .parse::<f64>()
-                                    .map_err(|_| DumpParsingError::InvalidNumber)?,
-                            );
+                            atoms[atom_count * j + i] = tokens[*j]
+                                .parse::<f64>()
+                                .map_err(|_| DumpParsingError::InvalidNumber)?
                         }
                     }
+                    dump.atoms.extend_from_slice(&atoms);
                 }
             }
         }
