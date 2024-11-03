@@ -1,6 +1,7 @@
 use clap::Parser;
 use lammps_util_rust::{DumpFile, DumpSnapshot};
 use plotters::prelude::*;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -21,18 +22,16 @@ struct Cli {
 
 fn get_distribution(dump: &DumpSnapshot, delta: f64) -> (Vec<f64>, Vec<Vec<f64>>) {
     println!("mii");
-    let atom_id = dump.get_property("id");
+    let atom_type = dump.get_property("id");
     let atom_x = dump.get_property("x");
     let atom_y = dump.get_property("y");
     let atom_z = dump.get_property("z");
     println!("mii");
-    let mut ids = Vec::new();
-    atom_id.iter().for_each(|&id| {
-        let id = id as usize;
-        if ids.contains(&id) {
-            ids.push(id);
-        }
-    });
+    let types = atom_type
+        .iter()
+        .copied()
+        .map(|t| t as usize)
+        .collect::<HashSet<_>>();
     println!("nipah");
     let x_min = atom_x.iter().copied().fold(f64::INFINITY, f64::min);
     let x_max = atom_x.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -44,19 +43,17 @@ fn get_distribution(dump: &DumpSnapshot, delta: f64) -> (Vec<f64>, Vec<Vec<f64>>
     let volume = delta * (y_max - y_min) * (x_max - x_min);
     let count = (z_max - z_min).ceil() as usize;
     let plot_x = (0..count)
-        .into_iter()
         .map(|i| (i as f64) * delta + delta / 2.0f64)
         .collect();
-    let plot_y = ids
+    let plot_y = types
         .iter()
-        .map(|id| (id, std::iter::zip(atom_id, atom_z)))
-        .map(|(&id, a_id_z)| {
+        .map(|id| (id, std::iter::zip(atom_type, atom_z)))
+        .map(|(&id, a_t_z)| {
             (0..count)
-                .into_iter()
                 .map(|i| i as f64)
                 .map(|i| (i * delta, (i + 1.0f64) * delta))
                 .map(|(start, end)| {
-                    a_id_z
+                    a_t_z
                         .filter(|(&a_id, &a_z)| {
                             (a_z >= start && a_z < end) && (a_id as usize) == id
                         })
