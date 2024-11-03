@@ -26,8 +26,8 @@ pub enum DumpParsingError {
     InvalidOrMissingNumberOfAtoms,
     MissingSymBox,
     MissingAtomKeys,
-    DuplicateKeys,
-    DuplicateTimesteps,
+    DuplicateAtomKeys,
+    DuplicateSnapshots,
     InvalidOrMissingAtomRow,
     IO(io::Error),
 }
@@ -65,9 +65,9 @@ impl DumpFile {
                     }
                     continue;
                 }
-                if dump.snapshots.contains_key(&timestep) {
-                    break Err(DumpParsingError::DuplicateKeys);
-                }
+            }
+            if dump.snapshots.contains_key(&timestep) {
+                break Err(DumpParsingError::DuplicateSnapshots);
             }
             match lines
                 .next()
@@ -92,7 +92,7 @@ impl DumpFile {
                             .insert(key.to_string(), snapshot_keys.len())
                             .is_some()
                         {
-                            break 'read_all Err(DumpParsingError::DuplicateKeys);
+                            break 'read_all Err(DumpParsingError::DuplicateAtomKeys);
                         }
                     }
                 }
