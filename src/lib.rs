@@ -32,6 +32,14 @@ pub enum DumpParsingError {
     IO(io::Error),
 }
 
+impl std::fmt::Display for DumpParsingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for DumpParsingError {}
+
 impl DumpFile {
     pub fn new(path: &Path, timesteps: &[u64]) -> Result<Self, DumpParsingError> {
         let lines = fs::read_to_string(path).map_err(DumpParsingError::IO)?;
