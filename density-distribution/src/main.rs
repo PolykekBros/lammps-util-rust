@@ -22,7 +22,7 @@ struct Cli {
 
 fn get_distribution(dump: &DumpSnapshot, delta: f64) -> (Vec<f64>, Vec<Vec<f64>>) {
     println!("mii");
-    let atom_type = dump.get_property("id");
+    let atom_type = dump.get_property("type");
     let atom_x = dump.get_property("x");
     let atom_y = dump.get_property("y");
     let atom_z = dump.get_property("z");
@@ -54,6 +54,7 @@ fn get_distribution(dump: &DumpSnapshot, delta: f64) -> (Vec<f64>, Vec<Vec<f64>>
                 .map(|i| (i * delta, (i + 1.0f64) * delta))
                 .map(|(start, end)| {
                     a_t_z
+                        .clone()
                         .filter(|(&a_id, &a_z)| {
                             (a_z >= start && a_z < end) && (a_id as usize) == id
                         })
