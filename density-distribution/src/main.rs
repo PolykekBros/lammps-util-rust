@@ -64,28 +64,6 @@ fn get_distribution(dump: &DumpSnapshot, delta: f64) -> (Vec<f64>, Vec<Vec<f64>>
                 .collect()
         })
         .collect();
-
-    // let plot_y = (0..count)
-    //     .into_iter()
-    //     .map(|i| i as f64)
-    //     .map(|i| (i * delta, (i + 1.0f64) * delta))
-    //     .map(|i| )
-
-    // let mut plot_y: Vec<Vec<f64>> = ids.iter().map(|_| Vec::with_capacity(count)).collect();
-    // for i in 0..count {
-    //     let i_f64 = i as f64;
-    //     for &id in &ids {
-    //         let atom_id_z = std::iter::zip(atom_id, atom_z);
-    //         plot_y[id - 1].push(
-    //             atom_id_z
-    //                 .filter(|(&fid, &z)| {
-    //                     (z >= i_f64 * delta && z < (i_f64 + 1.0f64) * delta) && id == (fid as usize)
-    //                 })
-    //                 .count() as f64
-    //                 / volume,
-    //         );
-    //     }
-    // }
     (plot_x, plot_y)
 }
 
