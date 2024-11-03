@@ -1,23 +1,19 @@
-use lammps_util_rust::{Dump, DumpParsingError};
+use lammps_util_rust::{DumpFile, DumpParsingError};
 use std::path::Path;
 
 fn main() -> Result<(), DumpParsingError> {
-    let dump = Dump::new(Path::new("examples/dump.simple"), &Vec::new())?;
-    let keys = dump.get_keys();
-    for tstep in dump.timesteps.keys() {
-        println!("\ntimestep: {tstep}");
+    let dump = DumpFile::new(Path::new("examples/dump.simple"), &Vec::new())?;
+    for snapshot in dump.get_snapshots() {
+        println!("\ntimestep: {}", snapshot.step);
+        let keys = snapshot.get_keys();
         print!("keys:");
         for key in keys.iter() {
             print!(" {key}")
         }
         println!();
-        let mut table = Vec::new();
-        for key in keys.iter() {
-            table.push(dump.get_property(*tstep, key));
-        }
-        for i in 0..dump.timesteps[tstep].atom_count {
-            for (pos, _) in keys.iter().enumerate() {
-                print!("{}\t", table[pos][i]);
+        for i in 0..snapshot.atoms_count {
+            for key in keys.iter() {
+                print!("{}\t", snapshot.get_property(key)[i]);
             }
             println!();
         }
