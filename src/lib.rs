@@ -1,3 +1,4 @@
+use core::fmt;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -150,5 +151,15 @@ impl DumpSnapshot {
         let start = self.keys[key] * self.atoms_count;
         let end = start + self.atoms_count;
         &self.atoms[start..end]
+    }
+}
+
+impl fmt::Debug for DumpSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DumpSnapshot")
+            .field("step", &self.step)
+            .field("atoms_count", &self.atoms_count)
+            .field("keys", &self.keys)
+            .finish()
     }
 }
