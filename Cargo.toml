@@ -7,7 +7,7 @@ edition = "2021"
 memmap2 = "0.9.5"
 
 [workspace]
-members = ["density-distribution"]
+members = [ "crater-analysis","density-distribution"]
 
 [workspace.dependencies]
 clap = { version = "4.5.20", features = ["derive"] }

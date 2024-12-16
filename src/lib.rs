@@ -163,3 +163,10 @@ impl fmt::Debug for DumpSnapshot {
             .finish()
     }
 }
+
+pub fn get_zero_lvl(snap: &DumpSnapshot) -> f64 {
+    snap.get_property("z")
+        .iter()
+        .copied()
+        .fold(f64::NEG_INFINITY, f64::max)
+}

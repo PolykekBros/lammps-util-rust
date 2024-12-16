@@ -1,0 +1,8 @@
+[package]
+name = "crater-analysis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lammps-util-rust = { path = "../"}
+clap = { workspace = true }
