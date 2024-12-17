@@ -25,7 +25,11 @@ pub struct DumpSnapshot {
 }
 
 impl DumpSnapshot {
-    pub fn new<'a, I>(lines: I, step: u64, atoms_count: usize) -> Result<Self, DumpParsingError>
+    pub fn new<'a, I>(
+        lines: &mut I,
+        step: u64,
+        atoms_count: usize,
+    ) -> Result<Self, DumpParsingError>
     where
         I: Iterator<Item = &'a str>,
     {
@@ -55,9 +59,9 @@ impl DumpSnapshot {
             .next()
             .and_then(|l| l.split_at_checked(HEADER_ATOMS.len()))
         {
-            Some((HEADER_ATOMS, keys)) => {
-                for key in keys.split_whitespace() {
-                    if keys.insert(key.to_string(), keys.len()).is_some() {
+            Some((HEADER_ATOMS, tokens)) => {
+                for token in tokens.split_whitespace() {
+                    if keys.insert(token.to_string(), keys.len()).is_some() {
                         return Err(DumpParsingError::DuplicateAtomKeys);
                     }
                 }
@@ -74,9 +78,8 @@ impl DumpSnapshot {
         for i in 0..atoms_count {
             let values: Vec<f64> = lines
                 .next()
-                .map(str::split_whitespace)
-                .map(str::parse::<f64>)
-                .collect();
+                .map(|l| l.split_whitespace().flat_map(str::parse::<f64>).collect())
+                .ok_or(DumpParsingError::InvalidOrMissingAtomRow)?;
             for (j, val) in values.iter().enumerate() {
                 snapshot.atoms[atoms_count * j + i] = *val;
             }

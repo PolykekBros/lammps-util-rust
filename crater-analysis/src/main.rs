@@ -1,5 +1,6 @@
 use clap::Parser;
-use lammps_util_rust::{get_zero_lvl, DumpFile, DumpParsingError, DumpSnapshot};
+use lammps_util_rust::dump_file::{DumpFile, DumpParsingError};
+use lammps_util_rust::dump_snapshot::DumpSnapshot;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -26,10 +27,10 @@ struct Stripes<'a> {
     snap: &'a DumpSnapshot,
 }
 
-fn get_distance(a_x: f64, a_y: f64, b_x: f64, b_y: f64) -> f64 {
+fn check_threshold(a_x: f64, a_y: f64, b_x: f64, b_y: f64, threshold: f64) -> bool {
     let d_x = a_x - b_x;
     let d_y = a_y - b_y;
-    (d_x * d_x + d_y * d_y).sqrt()
+    d_x * d_x + d_y * d_y <= threshold * threshold
 }
 
 impl<'a> Stripes<'a> {
@@ -70,8 +71,7 @@ impl<'a> Stripes<'a> {
             let mut missing = true;
             for snap_i in snap.ids[i].iter().copied() {
                 let (snap_x, snap_y) = snap.get_xy(snap_i);
-                let dist = get_distance(self_x, self_y, snap_x, snap_y);
-                if dist <= threshold {
+                if check_threshold(self_x, self_y, snap_x, snap_y, threshold) {
                     missing = false;
                     break;
                 }
@@ -91,7 +91,7 @@ fn get_crater_info(
     threshold: f64,
     width: f64,
 ) -> String {
-    let zero_lvl = get_zero_lvl(snap_input);
+    let zero_lvl = snap_input.get_zero_lvl();
     let stripes_input = Stripes::new(snap_input, zero_lvl, max_depth, width);
     let stripes_final = Stripes::new(snap_final, zero_lvl, max_depth, width);
     let mut crater_indexes = Vec::new();

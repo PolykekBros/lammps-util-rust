@@ -69,7 +69,7 @@ impl DumpFile {
             if dump.snapshots.contains_key(&timestep) {
                 break Err(DumpParsingError::DuplicateSnapshots);
             }
-            let snapshot = DumpSnapshot::new(lines, timestep, number_of_atoms);
+            let snapshot = DumpSnapshot::new(&mut lines, timestep, number_of_atoms)?;
             dump.snapshots.insert(snapshot.step, snapshot);
         }
     }
