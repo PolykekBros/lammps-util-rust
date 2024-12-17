@@ -92,8 +92,8 @@ impl DumpSnapshot {
                 .next()
                 .map(|l| l.split_whitespace().flat_map(str::parse::<f64>).collect())
                 .ok_or(DumpParsingError::InvalidOrMissingAtomRow)?;
-            for (j, val) in values.iter().enumerate() {
-                snapshot.atoms[atoms_count * j + i] = *val;
+            for (j, val) in values.into_iter().enumerate() {
+                snapshot.set_atom_value(j, i, val);
             }
         }
         Ok(snapshot)
@@ -115,7 +115,7 @@ impl DumpSnapshot {
         for i in 0..self.atoms_count {
             write!(w, "{}", self.atoms[i])?;
             for j in 1..self.keys.len() {
-                write!(w, " {}", self.atoms[j * self.atoms_count + i])?;
+                write!(w, " {}", self.get_atom_value(j, i))?;
             }
             writeln!(w)?;
         }
@@ -138,6 +138,16 @@ impl DumpSnapshot {
         let start = self.keys[key] * self.atoms_count;
         let end = start + self.atoms_count;
         &mut self.atoms[start..end]
+    }
+
+    #[inline]
+    pub fn get_atom_value(&self, property_index: usize, atom_index: usize) -> f64 {
+        self.atoms[self.atoms_count * property_index + atom_index]
+    }
+
+    #[inline]
+    pub fn set_atom_value(&mut self, property_index: usize, atom_index: usize, value: f64) {
+        self.atoms[self.atoms_count * property_index + atom_index] = value
     }
 
     #[inline]
