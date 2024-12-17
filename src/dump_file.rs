@@ -3,10 +3,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use crate::dump_snapshot::DumpSnapshot;
-
-const HEADER_TIMESTEP: &str = "ITEM: TIMESTEP";
-const HEADER_NUM_OF_ATOMS: &str = "ITEM: NUMBER OF ATOMS";
+use crate::dump_snapshot::{DumpSnapshot, HEADER_NUM_OF_ATOMS, HEADER_TIMESTEP};
 
 pub struct DumpFile {
     snapshots: HashMap<u64, DumpSnapshot>,
@@ -69,7 +66,7 @@ impl DumpFile {
             if dump.snapshots.contains_key(&timestep) {
                 break Err(DumpParsingError::DuplicateSnapshots);
             }
-            let snapshot = DumpSnapshot::new(&mut lines, timestep, number_of_atoms)?;
+            let snapshot = DumpSnapshot::read(&mut lines, timestep, number_of_atoms)?;
             dump.snapshots.insert(snapshot.step, snapshot);
         }
     }

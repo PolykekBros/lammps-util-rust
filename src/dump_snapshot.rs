@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::io;
 
 use crate::dump_file::DumpParsingError;
 
-const HEADER_SYM_BOX: &str = "ITEM: BOX";
-const HEADER_ATOMS: &str = "ITEM: ATOMS";
+pub const HEADER_TIMESTEP: &str = "ITEM: TIMESTEP";
+pub const HEADER_NUM_OF_ATOMS: &str = "ITEM: NUMBER OF ATOMS";
+pub const HEADER_SYM_BOX: &str = "ITEM: BOX";
+pub const HEADER_ATOMS: &str = "ITEM: ATOMS";
 
 pub struct SymBox {
     pub boundaries: String,
@@ -20,12 +23,32 @@ pub struct DumpSnapshot {
     pub step: u64,
     pub atoms_count: usize,
     pub sym_box: SymBox,
-    keys: HashMap<String, usize>,
+    keys_map: HashMap<String, usize>,
+    keys: Vec<String>,
     atoms: Vec<f64>,
 }
 
 impl DumpSnapshot {
-    pub fn new<'a, I>(
+    pub fn new(
+        keys_map: HashMap<String, usize>,
+        step: u64,
+        atoms_count: usize,
+        sym_box: SymBox,
+    ) -> Self {
+        let mut keys: Vec<(&String, &usize)> = keys_map.iter().collect();
+        keys.sort_by(|a, b| a.1.cmp(b.1));
+        let keys = keys.into_iter().map(|k| k.0.clone()).collect();
+        Self {
+            step,
+            atoms_count,
+            atoms: vec![0.0; atoms_count * keys_map.len()],
+            keys,
+            keys_map,
+            sym_box,
+        }
+    }
+
+    pub fn read<'a, I>(
         lines: &mut I,
         step: u64,
         atoms_count: usize,
@@ -54,27 +77,21 @@ impl DumpSnapshot {
             }
             _ => Err(DumpParsingError::MissingSymBox),
         }?;
-        let mut keys = HashMap::new();
+        let mut keys_map = HashMap::new();
         match lines
             .next()
             .and_then(|l| l.split_at_checked(HEADER_ATOMS.len()))
         {
             Some((HEADER_ATOMS, tokens)) => {
                 for token in tokens.split_whitespace() {
-                    if keys.insert(token.to_string(), keys.len()).is_some() {
+                    if keys_map.insert(token.to_string(), keys_map.len()).is_some() {
                         return Err(DumpParsingError::DuplicateAtomKeys);
                     }
                 }
             }
             _ => return Err(DumpParsingError::MissingAtomKeys),
         }
-        let mut snapshot = Self {
-            step,
-            atoms_count,
-            atoms: vec![0.0; atoms_count * keys.len()],
-            keys,
-            sym_box,
-        };
+        let mut snapshot = DumpSnapshot::new(keys_map, step, atoms_count, sym_box);
         for i in 0..atoms_count {
             let values: Vec<f64> = lines
                 .next()
@@ -87,16 +104,44 @@ impl DumpSnapshot {
         Ok(snapshot)
     }
 
-    pub fn get_keys(&self) -> Vec<&String> {
-        let mut entries: Vec<(&String, &usize)> = self.keys.iter().collect();
-        entries.sort_by(|a, b| a.1.cmp(b.1));
-        entries.into_iter().map(|i| i.0).collect()
+    pub fn write<W>(&self, w: &mut W) -> io::Result<()>
+    where
+        W: io::Write,
+    {
+        writeln!(w, "{HEADER_TIMESTEP}")?;
+        writeln!(w, "{}", self.step)?;
+        writeln!(w, "{HEADER_NUM_OF_ATOMS}")?;
+        writeln!(w, "{}", self.atoms_count)?;
+        writeln!(w, "{HEADER_SYM_BOX} {}", self.sym_box.boundaries)?;
+        writeln!(w, "{} {}", self.sym_box.xlo, self.sym_box.xhi)?;
+        writeln!(w, "{} {}", self.sym_box.ylo, self.sym_box.yhi)?;
+        writeln!(w, "{} {}", self.sym_box.zlo, self.sym_box.zhi)?;
+        writeln!(w, "{HEADER_ATOMS} {}", self.keys.join(" "))?;
+        for i in 0..self.atoms_count {
+            write!(w, "{}", self.atoms[i])?;
+            for j in 1..self.keys.len() {
+                write!(w, " {}", self.atoms[j * self.atoms_count + i])?;
+            }
+            writeln!(w)?;
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub fn get_keys(&self) -> &[String] {
+        &self.keys
     }
 
     pub fn get_property(&self, key: &str) -> &[f64] {
-        let start = self.keys[key] * self.atoms_count;
+        let start = self.keys_map[key] * self.atoms_count;
         let end = start + self.atoms_count;
         &self.atoms[start..end]
+    }
+
+    pub fn get_property_mut(&mut self, key: &str) -> &mut [f64] {
+        let start = self.keys_map[key] * self.atoms_count;
+        let end = start + self.atoms_count;
+        &mut self.atoms[start..end]
     }
 
     #[inline]
