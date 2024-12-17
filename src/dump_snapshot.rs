@@ -23,27 +23,22 @@ pub struct DumpSnapshot {
     pub step: u64,
     pub atoms_count: usize,
     pub sym_box: SymBox,
-    keys_map: HashMap<String, usize>,
-    keys: Vec<String>,
+    keys: HashMap<String, usize>,
     atoms: Vec<f64>,
 }
 
 impl DumpSnapshot {
     pub fn new(
-        keys_map: HashMap<String, usize>,
+        keys: HashMap<String, usize>,
         step: u64,
         atoms_count: usize,
         sym_box: SymBox,
     ) -> Self {
-        let mut keys: Vec<(&String, &usize)> = keys_map.iter().collect();
-        keys.sort_by(|a, b| a.1.cmp(b.1));
-        let keys = keys.into_iter().map(|k| k.0.clone()).collect();
         Self {
             step,
             atoms_count,
-            atoms: vec![0.0; atoms_count * keys_map.len()],
+            atoms: vec![0.0; atoms_count * keys.len()],
             keys,
-            keys_map,
             sym_box,
         }
     }
@@ -116,7 +111,7 @@ impl DumpSnapshot {
         writeln!(w, "{} {}", self.sym_box.xlo, self.sym_box.xhi)?;
         writeln!(w, "{} {}", self.sym_box.ylo, self.sym_box.yhi)?;
         writeln!(w, "{} {}", self.sym_box.zlo, self.sym_box.zhi)?;
-        writeln!(w, "{HEADER_ATOMS} {}", self.keys.join(" "))?;
+        writeln!(w, "{HEADER_ATOMS} {}", self.get_keys().join(" "))?;
         for i in 0..self.atoms_count {
             write!(w, "{}", self.atoms[i])?;
             for j in 1..self.keys.len() {
@@ -127,19 +122,20 @@ impl DumpSnapshot {
         Ok(())
     }
 
-    #[inline]
-    pub fn get_keys(&self) -> &[String] {
-        &self.keys
+    pub fn get_keys(&self) -> Vec<&str> {
+        let mut keys: Vec<(&String, &usize)> = self.keys.iter().collect();
+        keys.sort_by(|a, b| a.1.cmp(b.1));
+        keys.into_iter().map(|i| i.0.as_str()).collect()
     }
 
     pub fn get_property(&self, key: &str) -> &[f64] {
-        let start = self.keys_map[key] * self.atoms_count;
+        let start = self.keys[key] * self.atoms_count;
         let end = start + self.atoms_count;
         &self.atoms[start..end]
     }
 
     pub fn get_property_mut(&mut self, key: &str) -> &mut [f64] {
-        let start = self.keys_map[key] * self.atoms_count;
+        let start = self.keys[key] * self.atoms_count;
         let end = start + self.atoms_count;
         &mut self.atoms[start..end]
     }
