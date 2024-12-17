@@ -71,6 +71,15 @@ impl DumpFile {
         }
     }
 
+    pub fn save(&self, path: &Path) -> io::Result<()> {
+        let f = fs::File::create(path)?;
+        let mut w = io::BufWriter::new(f);
+        for snapshot in self.get_snapshots() {
+            snapshot.write(&mut w)?;
+        }
+        Ok(())
+    }
+
     pub fn get_snapshots(&self) -> Vec<&DumpSnapshot> {
         let mut entries: Vec<(&u64, &DumpSnapshot)> = self.snapshots.iter().collect();
         entries.sort_by(|a, b| a.0.cmp(b.0));

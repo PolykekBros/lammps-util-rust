@@ -6,7 +6,7 @@ use crate::dump_file::DumpParsingError;
 
 pub const HEADER_TIMESTEP: &str = "ITEM: TIMESTEP";
 pub const HEADER_NUM_OF_ATOMS: &str = "ITEM: NUMBER OF ATOMS";
-pub const HEADER_SYM_BOX: &str = "ITEM: BOX";
+pub const HEADER_SYM_BOX: &str = "ITEM: BOX BOUNDS";
 pub const HEADER_ATOMS: &str = "ITEM: ATOMS";
 
 pub struct SymBox {
@@ -66,7 +66,7 @@ impl DumpSnapshot {
                 lines.next();
                 lines.next();
                 Ok(SymBox {
-                    boundaries: boundaries.to_string(),
+                    boundaries: boundaries[1..].to_string(),
                     xlo: 0.0,
                     xhi: 0.0,
                     ylo: 0.0,
