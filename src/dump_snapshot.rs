@@ -9,6 +9,7 @@ pub const HEADER_NUM_OF_ATOMS: &str = "ITEM: NUMBER OF ATOMS";
 pub const HEADER_SYM_BOX: &str = "ITEM: BOX BOUNDS";
 pub const HEADER_ATOMS: &str = "ITEM: ATOMS";
 
+#[derive(Debug, Clone)]
 pub struct SymBox {
     pub boundaries: String,
     pub xlo: f64,

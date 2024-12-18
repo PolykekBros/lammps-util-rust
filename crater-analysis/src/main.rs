@@ -1,7 +1,7 @@
 use clap::Parser;
 use core::error;
 use lammps_util_rust::dump_file::DumpFile;
-use lammps_util_rust::dump_snapshot::{DumpSnapshot, SymBox};
+use lammps_util_rust::dump_snapshot::DumpSnapshot;
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
@@ -22,8 +22,8 @@ struct Cli {
     #[arg(short, long, value_name = "MAX_DEPTH (A)", default_value_t = 50.0)]
     max_depth: f64,
 
-    #[arg(short, long, value_name = "THRESHOLD (A)", default_value_t = 3.0)]
-    threshold: f64,
+    #[arg(short, long, value_name = "CUTOFF (A)", default_value_t = 3.0)]
+    cutoff: f64,
 
     #[arg(short, long, value_name = "STRIPE_WIDTH (A)", default_value_t = 5.43 / 2.0)]
     width: f64,
@@ -34,10 +34,11 @@ struct Stripes<'a> {
     snap: &'a DumpSnapshot,
 }
 
-fn check_cutoff(a_x: f64, a_y: f64, b_x: f64, b_y: f64, threshold: f64) -> bool {
-    let d_x = a_x - b_x;
-    let d_y = a_y - b_y;
-    d_x * d_x + d_y * d_y <= threshold * threshold
+fn check_cutoff(a: (f64, f64, f64), b: (f64, f64, f64), cutoff: f64) -> bool {
+    let d_x = a.0 - b.0;
+    let d_y = a.1 - b.1;
+    let d_z = a.2 - b.2;
+    d_x * d_x + d_y * d_y + d_z * d_z <= cutoff * cutoff
 }
 
 impl<'a> Stripes<'a> {
@@ -63,28 +64,29 @@ impl<'a> Stripes<'a> {
     }
 
     #[inline]
-    pub fn get_xy(&self, i: usize) -> (f64, f64) {
+    pub fn get_xyz(&self, i: usize) -> (f64, f64, f64) {
         (
             self.snap.get_property("x")[i],
             self.snap.get_property("y")[i],
+            self.snap.get_property("z")[i],
         )
     }
 
     pub fn get_missing_indexes(&self, snap: &Stripes, i: usize, cutoff: f64) -> Vec<usize> {
         let mut indexes = Vec::new();
         for self_i in self.ids[i].iter().copied() {
-            let (self_x, self_y) = self.get_xy(self_i);
-            if self_x <= self.snap.sym_box.xlo + cutoff
-                || self_x >= self.snap.sym_box.xhi - cutoff
-                || self_y <= self.snap.sym_box.ylo + cutoff
-                || self_y >= self.snap.sym_box.yhi - cutoff
+            let self_xyz = self.get_xyz(self_i);
+            if self_xyz.0 <= self.snap.sym_box.xlo + cutoff
+                || self_xyz.0 >= self.snap.sym_box.xhi - cutoff
+                || self_xyz.1 <= self.snap.sym_box.ylo + cutoff
+                || self_xyz.1 >= self.snap.sym_box.yhi - cutoff
             {
                 continue;
             }
             let mut missing = true;
             for snap_i in snap.ids[i].iter().copied() {
-                let (snap_x, snap_y) = snap.get_xy(snap_i);
-                if check_cutoff(self_x, self_y, snap_x, snap_y, cutoff) {
+                let snap_xyz = snap.get_xyz(snap_i);
+                if check_cutoff(self_xyz, snap_xyz, cutoff) {
                     missing = false;
                     break;
                 }
@@ -126,20 +128,8 @@ fn save_crater_candidates(
         .enumerate()
         .map(|(i, key)| (key.to_string(), i))
         .collect();
-    let mut snap_output = DumpSnapshot::new(
-        keys,
-        snap_input.step,
-        ids.len(),
-        SymBox {
-            boundaries: "p p p".to_string(),
-            xlo: -100.0,
-            xhi: 100.0,
-            ylo: -100.0,
-            yhi: 100.0,
-            zlo: -100.0,
-            zhi: 100.0,
-        },
-    );
+    let mut snap_output =
+        DumpSnapshot::new(keys, snap_input.step, ids.len(), snap_input.sym_box.clone());
     for (new_i, i) in ids.iter().copied().enumerate() {
         for (j, _) in snap_input.get_keys().iter().enumerate() {
             snap_output.set_atom_value(j, new_i, snap_input.get_atom_value(j, i));
@@ -159,7 +149,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         snapshot_input,
         snapshot_final,
         cli.max_depth,
-        cli.threshold,
+        cli.cutoff,
         cli.width,
     );
     save_crater_candidates(
