@@ -56,22 +56,36 @@ impl DumpSnapshot {
             .and_then(|l| l.split_at_checked(HEADER_SYM_BOX.len()))
         {
             Some((HEADER_SYM_BOX, boundaries)) => {
-                // TODO: read box parameters
-                lines.next();
-                lines.next();
-                lines.next();
-                Ok(SymBox {
+                let borders: Vec<(f64, f64)> = (0..3)
+                    .filter_map(|_| {
+                        lines.next().map(|l| {
+                            let mut s = l.split_whitespace();
+                            (
+                                s.next().and_then(|s| s.parse::<f64>().ok()),
+                                s.next().and_then(|s| s.parse::<f64>().ok()),
+                            )
+                        })
+                    })
+                    .filter_map(|p| match p {
+                        (Some(lo), Some(hi)) => Some((lo, hi)),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                if borders.len() != 3 {
+                    return Err(DumpParsingError::MissingSymBox);
+                }
+                SymBox {
                     boundaries: boundaries[1..].to_string(),
-                    xlo: 0.0,
-                    xhi: 0.0,
-                    ylo: 0.0,
-                    yhi: 0.0,
-                    zlo: 0.0,
-                    zhi: 0.0,
-                })
+                    xlo: borders[0].0,
+                    xhi: borders[0].1,
+                    ylo: borders[1].0,
+                    yhi: borders[1].1,
+                    zlo: borders[2].0,
+                    zhi: borders[2].1,
+                }
             }
-            _ => Err(DumpParsingError::MissingSymBox),
-        }?;
+            _ => return Err(DumpParsingError::MissingSymBox),
+        };
         let mut keys_map = HashMap::new();
         match lines
             .next()

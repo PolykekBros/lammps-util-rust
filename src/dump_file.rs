@@ -30,7 +30,17 @@ impl std::fmt::Display for DumpParsingError {
 impl std::error::Error for DumpParsingError {}
 
 impl DumpFile {
-    pub fn new(path: &Path, timesteps: &[u64]) -> Result<Self, DumpParsingError> {
+    pub fn new(snapshots: Vec<DumpSnapshot>) -> Self {
+        let mut snapshots_map = HashMap::new();
+        for snapshot in snapshots {
+            snapshots_map.entry(snapshot.step).insert_entry(snapshot);
+        }
+        Self {
+            snapshots: snapshots_map,
+        }
+    }
+
+    pub fn read(path: &Path, timesteps: &[u64]) -> Result<Self, DumpParsingError> {
         let lines = fs::read_to_string(path).map_err(DumpParsingError::IO)?;
         let mut lines = lines.trim().split("\n");
 

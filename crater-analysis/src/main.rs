@@ -1,6 +1,10 @@
 use clap::Parser;
-use lammps_util_rust::dump_file::{DumpFile, DumpParsingError};
-use lammps_util_rust::dump_snapshot::DumpSnapshot;
+use core::error;
+use lammps_util_rust::dump_file::DumpFile;
+use lammps_util_rust::dump_snapshot::{DumpSnapshot, SymBox};
+use std::collections::HashMap;
+use std::io;
+use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -11,6 +15,9 @@ struct Cli {
 
     #[arg(value_name = "DUMP_FINAL")]
     dump_final_file: PathBuf,
+
+    #[arg(value_name = "OUTPUT_DIR")]
+    output_dir: PathBuf,
 
     #[arg(short, long, value_name = "MAX_DEPTH (A)", default_value_t = 50.0)]
     max_depth: f64,
@@ -27,7 +34,7 @@ struct Stripes<'a> {
     snap: &'a DumpSnapshot,
 }
 
-fn check_threshold(a_x: f64, a_y: f64, b_x: f64, b_y: f64, threshold: f64) -> bool {
+fn check_cutoff(a_x: f64, a_y: f64, b_x: f64, b_y: f64, threshold: f64) -> bool {
     let d_x = a_x - b_x;
     let d_y = a_y - b_y;
     d_x * d_x + d_y * d_y <= threshold * threshold
@@ -41,8 +48,7 @@ impl<'a> Stripes<'a> {
         for _ in 0..count {
             ids.push(Vec::new());
         }
-        for i in 0..snap_z.len() {
-            let z = snap_z[i];
+        for (i, z) in snap_z.iter().copied().enumerate() {
             if zero_lvl >= z && zero_lvl - max_depth < z {
                 let j = ((zero_lvl - z) / width).floor() as usize;
                 ids[j].push(i);
@@ -64,14 +70,21 @@ impl<'a> Stripes<'a> {
         )
     }
 
-    pub fn get_missing_indexes(&self, snap: &Stripes, i: usize, threshold: f64) -> Vec<usize> {
+    pub fn get_missing_indexes(&self, snap: &Stripes, i: usize, cutoff: f64) -> Vec<usize> {
         let mut indexes = Vec::new();
         for self_i in self.ids[i].iter().copied() {
             let (self_x, self_y) = self.get_xy(self_i);
+            if self_x <= self.snap.sym_box.xlo + cutoff
+                || self_x >= self.snap.sym_box.xhi - cutoff
+                || self_y <= self.snap.sym_box.ylo + cutoff
+                || self_y >= self.snap.sym_box.yhi - cutoff
+            {
+                continue;
+            }
             let mut missing = true;
             for snap_i in snap.ids[i].iter().copied() {
                 let (snap_x, snap_y) = snap.get_xy(snap_i);
-                if check_threshold(self_x, self_y, snap_x, snap_y, threshold) {
+                if check_cutoff(self_x, self_y, snap_x, snap_y, cutoff) {
                     missing = false;
                     break;
                 }
@@ -84,13 +97,13 @@ impl<'a> Stripes<'a> {
     }
 }
 
-fn get_crater_info(
+fn get_crater_candidate_indecies(
     snap_input: &DumpSnapshot,
     snap_final: &DumpSnapshot,
     max_depth: f64,
     threshold: f64,
     width: f64,
-) -> String {
+) -> Vec<usize> {
     let zero_lvl = snap_input.get_zero_lvl();
     let stripes_input = Stripes::new(snap_input, zero_lvl, max_depth, width);
     let stripes_final = Stripes::new(snap_final, zero_lvl, max_depth, width);
@@ -99,35 +112,78 @@ fn get_crater_info(
         let indexes = stripes_input.get_missing_indexes(&stripes_final, i, threshold);
         crater_indexes.extend(indexes);
     }
-    let crater_count = crater_indexes.len();
-    let mut surface_count = 0;
-    let mut z_avg = 0.0;
-    let mut z_min = f64::INFINITY;
-    for i in crater_indexes {
-        let z = snap_input.get_property("z")[i];
-        if z > -2.4 * 0.707 + zero_lvl {
-            surface_count += 1;
-        }
-        z_min = z_min.min(z - zero_lvl);
-        z_avg += z - zero_lvl;
-    }
-    z_avg /= crater_count as f64;
-    let volume = crater_count as f64 * 20.1;
-    let surface = surface_count as f64 * 7.3712;
-    format!("{crater_count} {volume} {surface} {z_avg} {z_min}")
+    crater_indexes
 }
 
-fn main() -> Result<(), DumpParsingError> {
+fn save_crater_candidates(
+    snap_input: &DumpSnapshot,
+    ids: &[usize],
+    output_path: &Path,
+) -> io::Result<()> {
+    let keys: HashMap<String, usize> = snap_input
+        .get_keys()
+        .into_iter()
+        .enumerate()
+        .map(|(i, key)| (key.to_string(), i))
+        .collect();
+    let mut snap_output = DumpSnapshot::new(
+        keys,
+        snap_input.step,
+        ids.len(),
+        SymBox {
+            boundaries: "p p p".to_string(),
+            xlo: -100.0,
+            xhi: 100.0,
+            ylo: -100.0,
+            yhi: 100.0,
+            zlo: -100.0,
+            zhi: 100.0,
+        },
+    );
+    for (new_i, i) in ids.iter().copied().enumerate() {
+        for (j, _) in snap_input.get_keys().iter().enumerate() {
+            snap_output.set_atom_value(j, new_i, snap_input.get_atom_value(j, i));
+        }
+    }
+    let dump_file = DumpFile::new(vec![snap_output]);
+    dump_file.save(output_path)
+}
+
+fn main() -> Result<(), Box<dyn error::Error>> {
     let cli = Cli::parse();
-    let dump_input = DumpFile::new(&cli.dump_input_file, &[])?;
-    let dump_final = DumpFile::new(&cli.dump_final_file, &[])?;
-    let info = get_crater_info(
-        dump_input.get_snapshots()[0],
-        dump_final.get_snapshots()[0],
+    let dump_input = DumpFile::read(&cli.dump_input_file, &[])?;
+    let snapshot_input = dump_input.get_snapshots()[0];
+    let dump_final = DumpFile::read(&cli.dump_final_file, &[])?;
+    let snapshot_final = dump_final.get_snapshots()[0];
+    let candidate_indicies = get_crater_candidate_indecies(
+        snapshot_input,
+        snapshot_final,
         cli.max_depth,
         cli.threshold,
         cli.width,
     );
-    println!("{info}");
+    save_crater_candidates(
+        snapshot_input,
+        &candidate_indicies,
+        &cli.output_dir.join("dump.crater_candidates"),
+    )?;
+    // println!("{info}");
     Ok(())
 }
+
+// let crater_count = crater_indexes.len();
+// let mut surface_count = 0;
+// let mut z_avg = 0.0;
+// let mut z_min = f64::INFINITY;
+// for i in crater_indexes {
+//     let z = snap_input.get_property("z")[i];
+//     if z > -2.4 * 0.707 + zero_lvl {
+//         surface_count += 1;
+//     }
+//     z_min = z_min.min(z - zero_lvl);
+//     z_avg += z - zero_lvl;
+// }
+// z_avg /= crater_count as f64;
+// let volume = crater_count as f64 * 20.1;
+// let surface = surface_count as f64 * 7.3712;
+// format!("{crater_count} {volume} {surface} {z_avg} {z_min}")
