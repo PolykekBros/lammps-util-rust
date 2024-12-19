@@ -137,6 +137,11 @@ impl DumpSnapshot {
         Ok(())
     }
 
+    #[inline]
+    pub fn get_keys_map(&self) -> &HashMap<String, usize> {
+        &self.keys
+    }
+
     pub fn get_keys(&self) -> Vec<&str> {
         let mut keys: Vec<(&String, &usize)> = self.keys.iter().collect();
         keys.sort_by(|a, b| a.1.cmp(b.1));

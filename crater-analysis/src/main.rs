@@ -1,10 +1,6 @@
 use clap::Parser;
 use core::error;
-use lammps_util_rust::dump_file::DumpFile;
-use lammps_util_rust::dump_snapshot::{DumpSnapshot, SymBox};
-use std::collections::HashMap;
-use std::io;
-use std::path::Path;
+use lammps_util_rust::{check_cutoff, Clusterizer, DumpFile, DumpSnapshot, SymBox};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -35,13 +31,6 @@ struct Stripes<'a> {
     x: &'a [f64],
     y: &'a [f64],
     z: &'a [f64],
-}
-
-fn check_cutoff(a: (f64, f64, f64), b: (f64, f64, f64), cutoff: f64) -> bool {
-    let d_x = a.0 - b.0;
-    let d_y = a.1 - b.1;
-    let d_z = a.2 - b.2;
-    d_x * d_x + d_y * d_y + d_z * d_z <= cutoff * cutoff
 }
 
 impl<'a> Stripes<'a> {
@@ -97,14 +86,18 @@ impl<'a> Stripes<'a> {
                     && self.sym_box.ylo + cutoff < self_xyz.1
                     && self_xyz.1 < self.sym_box.yhi - cutoff
                 {
-                    let missing = snap.indices[i]
-                        .iter()
-                        .copied()
-                        .fold(true, |missing, snap_i| {
-                            let snap_xyz = snap.get_xyz(snap_i);
-                            missing && !check_cutoff(self_xyz, snap_xyz, cutoff)
-                        });
-                    if missing {
+                    let neighbours =
+                        snap.indices[i]
+                            .iter()
+                            .copied()
+                            .fold(0, |neighbours, snap_i| {
+                                let snap_xyz = snap.get_xyz(snap_i);
+                                match check_cutoff(self_xyz, snap_xyz, cutoff) {
+                                    true => neighbours + 1,
+                                    false => neighbours,
+                                }
+                            });
+                    if neighbours == 0 {
                         indices.push(self_i);
                     }
                 }
@@ -130,26 +123,23 @@ fn get_crater_candidate_indecies(
     })
 }
 
-fn save_crater_candidates(
-    snap_input: &DumpSnapshot,
-    ids: &[usize],
-    output_path: &Path,
-) -> io::Result<()> {
-    let keys: HashMap<String, usize> = snap_input
-        .get_keys()
-        .into_iter()
-        .enumerate()
-        .map(|(i, key)| (key.to_string(), i))
-        .collect();
-    let mut snap_output =
-        DumpSnapshot::new(keys, snap_input.step, ids.len(), snap_input.sym_box.clone());
-    for (new_i, i) in ids.iter().copied().enumerate() {
-        for (j, _) in snap_input.get_keys().iter().enumerate() {
-            snap_output.set_atom_value(j, new_i, snap_input.get_atom_value(j, i));
-        }
-    }
-    let dump_file = DumpFile::new(vec![snap_output]);
-    dump_file.save(output_path)
+fn crater_candidates(snap_input: &DumpSnapshot, ids: &[usize]) -> DumpFile {
+    let keys = snap_input.get_keys_map();
+    let snap_output = ids.iter().copied().enumerate().fold(
+        DumpSnapshot::new(
+            keys.clone(),
+            snap_input.step,
+            ids.len(),
+            snap_input.sym_box.clone(),
+        ),
+        |mut snap_output, (new_i, i)| {
+            snap_input.get_keys().iter().enumerate().for_each(|(j, _)| {
+                snap_output.set_atom_value(j, new_i, snap_input.get_atom_value(j, i));
+            });
+            snap_output
+        },
+    );
+    DumpFile::new(vec![snap_output])
 }
 
 fn main() -> Result<(), Box<dyn error::Error>> {
@@ -165,11 +155,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         cli.cutoff,
         cli.width,
     );
-    save_crater_candidates(
-        snapshot_input,
-        &candidate_indicies,
-        &cli.output_dir.join("dump.crater_candidates"),
-    )?;
+    let dump_crater = crater_candidates(snapshot_input, &candidate_indicies);
+    let dump_crater_clusterized = Clusterizer::new(dump_crater.get_snapshots()[0]).clusterize();
+    dump_crater_clusterized.save(&cli.output_dir.join("dump.crater_candidates"))?;
     // println!("{info}");
     Ok(())
 }
