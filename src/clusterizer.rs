@@ -15,8 +15,8 @@ impl Clusterizer {
         let cluster_j = keys.len();
         keys.entry("cluster".to_string()).insert_entry(cluster_j);
         let x_j = keys["x"];
-        let z_j = keys["y"];
-        let y_j = keys["z"];
+        let y_j = keys["y"];
+        let z_j = keys["z"];
         let snapshot = (0..snapshot_input.atoms_count).fold(
             DumpSnapshot::new(
                 keys,
@@ -52,28 +52,42 @@ impl Clusterizer {
         )
     }
 
-    fn find_cluster_i(&self, cluster: &HashSet<usize>, atom_i: usize) -> Option<usize> {
-        cluster.iter().copied().find(|cluster_i| {
-            let atom_xyz = self.get_atom_xyz(atom_i);
-            let cluster_xyz = self.get_atom_xyz(*cluster_i);
-            check_cutoff(atom_xyz, cluster_xyz, 3.0)
-        })
+    fn find_cluster_i(&self, cluster: &HashSet<usize>, atoms: &HashSet<usize>) -> Option<usize> {
+        cluster
+            .iter()
+            .copied()
+            .filter_map(|cluster_i| {
+                let cluster_xyz = self.get_atom_xyz(cluster_i);
+                atoms.iter().copied().find(|atom_i| {
+                    let atom_xyz = self.get_atom_xyz(*atom_i);
+                    check_cutoff(atom_xyz, cluster_xyz, 3.0)
+                })
+            })
+            .next()
     }
 
     pub fn clusterize(mut self) -> DumpFile {
+        let mut indices: HashSet<usize> = (0..self.snapshot.atoms_count).collect();
         let clusters: HashMap<usize, HashSet<usize>> =
-            (0..self.snapshot.atoms_count).fold(HashMap::new(), |mut clusters, atom_i| {
-                let cluster_i = clusters
+            (0..self.snapshot.atoms_count).fold(HashMap::new(), |mut clusters, _| {
+                let (cluster_i, atom_i) = clusters
                     .iter()
-                    .filter_map(|(_, cluster)| self.find_cluster_i(cluster, atom_i))
+                    .filter_map(|(cluster_i, cluster)| {
+                        self.find_cluster_i(cluster, &indices)
+                            .map(|atom_i| (*cluster_i, atom_i))
+                    })
                     .next()
-                    .unwrap_or(atom_i);
+                    .unwrap_or({
+                        let atom_i = *indices.iter().next().unwrap();
+                        (atom_i, atom_i)
+                    });
                 clusters
                     .entry(cluster_i)
                     .and_modify(|cluster| {
                         cluster.insert(atom_i);
                     })
                     .or_insert(HashSet::from([atom_i]));
+                indices.remove(&atom_i);
                 clusters
             });
         (0..self.snapshot.atoms_count).for_each(|atom_i| {

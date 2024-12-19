@@ -1,8 +1,8 @@
-use lammps_util_rust::{DumpFile, DumpParsingError};
+use lammps_util_rust::DumpFile;
 use std::path::Path;
 
-fn main() -> Result<(), DumpParsingError> {
-    let dump = DumpFile::new(Path::new("examples/dump.simple"), &Vec::new())?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let dump = DumpFile::read(Path::new("examples/dump.simple"), &Vec::new())?;
     for snapshot in dump.get_snapshots() {
         println!("\ntimestep: {}", snapshot.step);
         let keys = snapshot.get_keys();
