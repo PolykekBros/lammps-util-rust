@@ -6,7 +6,6 @@ pub struct Clusterizer {
     x_j: usize,
     y_j: usize,
     z_j: usize,
-    cluster_j: usize,
 }
 
 impl Clusterizer {
@@ -40,7 +39,6 @@ impl Clusterizer {
             x_j,
             y_j,
             z_j,
-            cluster_j,
         }
     }
 
@@ -90,13 +88,18 @@ impl Clusterizer {
                 indices.remove(&atom_i);
                 clusters
             });
+        let cluster_j = self.snapshot.get_property_index("cluster");
+        let id_j = self.snapshot.get_property_index("id");
         (0..self.snapshot.atoms_count).for_each(|atom_i| {
             let (cluster_i, _) = clusters
                 .iter()
                 .find(|(_, cluster)| cluster.contains(&atom_i))
                 .unwrap();
-            self.snapshot
-                .set_atom_value(self.cluster_j, atom_i, *cluster_i as f64);
+            self.snapshot.set_atom_value(
+                cluster_j,
+                atom_i,
+                self.snapshot.get_atom_value(id_j, *cluster_i),
+            );
         });
         DumpFile::new(vec![self.snapshot])
     }

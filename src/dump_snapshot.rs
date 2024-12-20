@@ -148,6 +148,11 @@ impl DumpSnapshot {
         keys.into_iter().map(|i| i.0.as_str()).collect()
     }
 
+    #[inline]
+    pub fn get_property_index(&self, key: &str) -> usize {
+        self.keys[key]
+    }
+
     pub fn get_property(&self, key: &str) -> &[f64] {
         let start = self.keys[key] * self.atoms_count;
         let end = start + self.atoms_count;

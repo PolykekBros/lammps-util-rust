@@ -1,7 +1,7 @@
 use clap::Parser;
 use core::error;
 use lammps_util_rust::{check_cutoff, Clusterizer, DumpFile, DumpSnapshot, SymBox};
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -142,10 +142,53 @@ fn crater_candidates(snap_input: &DumpSnapshot, ids: &[usize]) -> DumpFile {
     DumpFile::new(vec![snap_output])
 }
 
+fn get_crater_info(snapshot: &DumpSnapshot, zero_lvl: f64) -> String {
+    let cluster = snapshot.get_property("cluster");
+    let cluster_cnt = cluster
+        .iter()
+        .copied()
+        .fold(HashMap::new(), |mut indices, cluster| {
+            indices
+                .entry(cluster as u64)
+                .and_modify(|cnt| *cnt += 1)
+                .or_insert(1);
+            indices
+        });
+    let (cluster_max, _) = cluster_cnt.iter().fold(
+        (0, u64::MIN),
+        |(cluster_max, max_cnt), (cluster, cnt)| match *cnt > max_cnt {
+            true => (*cluster, *cnt),
+            false => (cluster_max, max_cnt),
+        },
+    );
+    let z = snapshot.get_property("z");
+    let mut crater_count = 0;
+    let mut surface_count = 0;
+    let mut z_avg = 0.0;
+    let mut z_min = f64::INFINITY;
+    for i in 0..snapshot.atoms_count {
+        let z = z[i];
+        let cluster = cluster[i];
+        if cluster as u64 == cluster_max {
+            if z > -2.4 * 0.707 + zero_lvl {
+                surface_count += 1;
+            }
+            crater_count += 1;
+            z_min = z_min.min(z - zero_lvl);
+            z_avg += z - zero_lvl;
+        }
+    }
+    z_avg /= crater_count as f64;
+    let volume = crater_count as f64 * 20.1;
+    let surface = surface_count as f64 * 7.3712;
+    format!("{crater_count} {volume} {surface} {z_avg} {z_min}")
+}
+
 fn main() -> Result<(), Box<dyn error::Error>> {
     let cli = Cli::parse();
     let dump_input = DumpFile::read(&cli.dump_input_file, &[])?;
     let snapshot_input = dump_input.get_snapshots()[0];
+    let zero_lvl = snapshot_input.get_zero_lvl();
     let dump_final = DumpFile::read(&cli.dump_final_file, &[])?;
     let snapshot_final = dump_final.get_snapshots()[0];
     let candidate_indicies = get_crater_candidate_indecies(
@@ -158,23 +201,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let dump_crater = crater_candidates(snapshot_input, &candidate_indicies);
     let dump_crater_clusterized = Clusterizer::new(dump_crater.get_snapshots()[0]).clusterize();
     dump_crater_clusterized.save(&cli.output_dir.join("dump.crater_candidates"))?;
-    // println!("{info}");
+    let info = get_crater_info(dump_crater_clusterized.get_snapshots()[0], zero_lvl);
+    println!("{info}");
     Ok(())
 }
-
-// let crater_count = crater_indexes.len();
-// let mut surface_count = 0;
-// let mut z_avg = 0.0;
-// let mut z_min = f64::INFINITY;
-// for i in crater_indexes {
-//     let z = snap_input.get_property("z")[i];
-//     if z > -2.4 * 0.707 + zero_lvl {
-//         surface_count += 1;
-//     }
-//     z_min = z_min.min(z - zero_lvl);
-//     z_avg += z - zero_lvl;
-// }
-// z_avg /= crater_count as f64;
-// let volume = crater_count as f64 * 20.1;
-// let surface = surface_count as f64 * 7.3712;
-// format!("{crater_count} {volume} {surface} {z_avg} {z_min}")
