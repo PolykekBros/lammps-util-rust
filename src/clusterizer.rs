@@ -81,7 +81,6 @@ impl Clusterizer {
                         .iter()
                         .for_each(|xyz| {
                             let neigh_i = atoms_map[xyz];
-                            println!("{i} {neigh_i} {xyz:?} {current_cluster:?}");
                             if !visited[neigh_i] {
                                 visited[neigh_i] = true;
                                 stack.push((neigh_i, xyz));
