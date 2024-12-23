@@ -67,31 +67,36 @@ impl Clusterizer {
                     atoms
                 });
         let kdtree = kd_tree::KdTree::build_by_ordered_float(atoms.clone());
-        let mut clusters = HashMap::new();
         let mut visited = vec![false; kdtree.len()];
-        atoms.iter().enumerate().for_each(|(i, atom)| {
-            if !visited[i] {
-                let mut current_cluster = HashSet::new();
-                let mut stack = vec![(i, atom)];
-                visited[i] = true;
-                while let Some((current_i, atom)) = stack.pop() {
-                    current_cluster.insert(current_i);
-                    kdtree
-                        .within_radius(atom, self.cutoff)
-                        .iter()
-                        .for_each(|xyz| {
-                            let neigh_i = atoms_map[xyz];
-                            if !visited[neigh_i] {
-                                visited[neigh_i] = true;
-                                stack.push((neigh_i, xyz));
-                            }
-                        });
+        let clusters: HashMap<usize, HashSet<usize>> = atoms
+            .iter()
+            .enumerate()
+            .filter_map(|(i, atom)| match visited[i] {
+                false => {
+                    let mut current_cluster = HashSet::new();
+                    let mut stack = vec![(i, atom)];
+                    visited[i] = true;
+                    while let Some((current_i, atom)) = stack.pop() {
+                        current_cluster.insert(current_i);
+                        kdtree
+                            .within_radius(atom, self.cutoff)
+                            .iter()
+                            .for_each(|xyz| {
+                                let neigh_i = atoms_map[xyz];
+                                if !visited[neigh_i] {
+                                    visited[neigh_i] = true;
+                                    stack.push((neigh_i, xyz));
+                                }
+                            });
+                    }
+                    Some((
+                        *current_cluster.iter().take(1).next().unwrap(),
+                        current_cluster,
+                    ))
                 }
-                clusters
-                    .entry(*current_cluster.iter().take(1).next().unwrap())
-                    .insert_entry(current_cluster);
-            }
-        });
+                true => None,
+            })
+            .collect();
         let cluster_j = self.snapshot.get_property_index("cluster");
         let id_j = self.snapshot.get_property_index("id");
         (0..self.snapshot.atoms_count).for_each(|atom_i| {
