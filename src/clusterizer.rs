@@ -1,4 +1,4 @@
-use super::{check_cutoff, DumpFile, DumpSnapshot};
+use super::{check_cutoff, DumpFile, DumpSnapshot, XYZ};
 use std::collections::{HashMap, HashSet};
 
 pub struct Clusterizer {
@@ -6,10 +6,20 @@ pub struct Clusterizer {
     x_j: usize,
     y_j: usize,
     z_j: usize,
+    cutoff: f64,
+}
+
+impl kd_tree::KdPoint for XYZ {
+    type Scalar = f64;
+    type Dim = typenum::U3;
+    fn at(&self, i: usize) -> f64 {
+        self.coords[i]
+    }
 }
 
 impl Clusterizer {
-    pub fn new(snapshot_input: &DumpSnapshot) -> Self {
+    pub fn new(snapshot_input: &DumpSnapshot, cutoff: f64) -> Self {
+        assert!(cutoff >= 0.0);
         let mut keys = snapshot_input.get_keys_map().clone();
         let cluster_j = keys.len();
         keys.entry("cluster".to_string()).insert_entry(cluster_j);
@@ -39,55 +49,58 @@ impl Clusterizer {
             x_j,
             y_j,
             z_j,
+            cutoff,
         }
     }
 
-    fn get_atom_xyz(&self, atom_i: usize) -> (f64, f64, f64) {
-        (
+    fn get_atom_xyz(&self, atom_i: usize) -> XYZ {
+        XYZ::from([
             self.snapshot.get_atom_value(self.x_j, atom_i),
             self.snapshot.get_atom_value(self.y_j, atom_i),
             self.snapshot.get_atom_value(self.z_j, atom_i),
-        )
-    }
-
-    fn find_cluster_i(&self, cluster: &HashSet<usize>, atoms: &HashSet<usize>) -> Option<usize> {
-        cluster
-            .iter()
-            .copied()
-            .filter_map(|cluster_i| {
-                let cluster_xyz = self.get_atom_xyz(cluster_i);
-                atoms.iter().copied().find(|atom_i| {
-                    let atom_xyz = self.get_atom_xyz(*atom_i);
-                    check_cutoff(atom_xyz, cluster_xyz, 3.0)
-                })
-            })
-            .next()
+        ])
     }
 
     pub fn clusterize(mut self) -> DumpFile {
-        let mut indices: HashSet<usize> = (0..self.snapshot.atoms_count).collect();
-        let clusters: HashMap<usize, HashSet<usize>> =
-            (0..self.snapshot.atoms_count).fold(HashMap::new(), |mut clusters, _| {
-                let (cluster_i, atom_i) = clusters
-                    .iter()
-                    .filter_map(|(cluster_i, cluster)| {
-                        self.find_cluster_i(cluster, &indices)
-                            .map(|atom_i| (*cluster_i, atom_i))
-                    })
-                    .next()
-                    .unwrap_or({
-                        let atom_i = *indices.iter().next().unwrap();
-                        (atom_i, atom_i)
-                    });
+        let atoms: Vec<XYZ> = (0..self.snapshot.atoms_count)
+            .map(|i| self.get_atom_xyz(i))
+            .collect();
+        let atoms_map =
+            atoms
+                .iter()
+                .copied()
+                .enumerate()
+                .fold(HashMap::new(), |mut atoms, (i, xyz)| {
+                    atoms.entry(xyz).insert_entry(i);
+                    atoms
+                });
+        let kdtree = kd_tree::KdTree::build_by_ordered_float(atoms.clone());
+        let mut clusters = HashMap::new();
+        let mut visited = vec![false; kdtree.len()];
+        atoms.iter().enumerate().for_each(|(i, atom)| {
+            if !visited[i] {
+                let mut current_cluster = HashSet::new();
+                let mut stack = vec![(i, atom)];
+                visited[i] = true;
+                while let Some((current_i, atom)) = stack.pop() {
+                    current_cluster.insert(current_i);
+                    kdtree
+                        .within_radius(atom, self.cutoff)
+                        .iter()
+                        .for_each(|xyz| {
+                            let neigh_i = atoms_map[xyz];
+                            println!("{i} {neigh_i} {xyz:?} {current_cluster:?}");
+                            if !visited[neigh_i] {
+                                visited[neigh_i] = true;
+                                stack.push((neigh_i, xyz));
+                            }
+                        });
+                }
                 clusters
-                    .entry(cluster_i)
-                    .and_modify(|cluster| {
-                        cluster.insert(atom_i);
-                    })
-                    .or_insert(HashSet::from([atom_i]));
-                indices.remove(&atom_i);
-                clusters
-            });
+                    .entry(*current_cluster.iter().take(1).next().unwrap())
+                    .insert_entry(current_cluster);
+            }
+        });
         let cluster_j = self.snapshot.get_property_index("cluster");
         let id_j = self.snapshot.get_property_index("id");
         (0..self.snapshot.atoms_count).for_each(|atom_i| {

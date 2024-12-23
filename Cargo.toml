@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+kd-tree = "0.6.0"
 memmap2 = "0.9.5"
+typenum = "1.17.0"
 
 [workspace]
 members = [ "crater-analysis","density-distribution"]

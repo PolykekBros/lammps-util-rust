@@ -1,6 +1,6 @@
 use clap::Parser;
 use core::error;
-use lammps_util_rust::{check_cutoff, Clusterizer, DumpFile, DumpSnapshot, SymBox};
+use lammps_util_rust::{check_cutoff, Clusterizer, DumpFile, DumpSnapshot, SymBox, XYZ};
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Parser)]
@@ -71,8 +71,8 @@ impl<'a> Stripes<'a> {
     }
 
     #[inline]
-    pub fn get_xyz(&self, i: usize) -> (f64, f64, f64) {
-        (self.x[i], self.y[i], self.z[i])
+    pub fn get_xyz(&self, i: usize) -> XYZ {
+        XYZ::from([self.x[i], self.y[i], self.z[i]])
     }
 
     pub fn get_missing_indices(&self, snap: &Stripes, i: usize, cutoff: f64) -> Vec<usize> {
@@ -81,10 +81,10 @@ impl<'a> Stripes<'a> {
             .copied()
             .fold(Vec::new(), |mut indices, self_i| {
                 let self_xyz = self.get_xyz(self_i);
-                if self.sym_box.xlo + cutoff < self_xyz.0
-                    && self_xyz.0 < self.sym_box.xhi - cutoff
-                    && self.sym_box.ylo + cutoff < self_xyz.1
-                    && self_xyz.1 < self.sym_box.yhi - cutoff
+                if self.sym_box.xlo + cutoff < self_xyz.x()
+                    && self_xyz.x() < self.sym_box.xhi - cutoff
+                    && self.sym_box.ylo + cutoff < self_xyz.y()
+                    && self_xyz.y() < self.sym_box.yhi - cutoff
                 {
                     let neighbours =
                         snap.indices[i]
@@ -199,7 +199,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         cli.width,
     );
     let dump_crater = crater_candidates(snapshot_input, &candidate_indicies);
-    let dump_crater_clusterized = Clusterizer::new(dump_crater.get_snapshots()[0]).clusterize();
+    let dump_crater_clusterized =
+        Clusterizer::new(dump_crater.get_snapshots()[0], 3.0).clusterize();
     dump_crater_clusterized.save(&cli.output_dir.join("dump.crater_candidates"))?;
     let info = get_crater_info(dump_crater_clusterized.get_snapshots()[0], zero_lvl);
     println!("{info}");
