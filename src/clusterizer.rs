@@ -1,4 +1,4 @@
-use super::{check_cutoff, DumpFile, DumpSnapshot, XYZ};
+use super::{DumpFile, DumpSnapshot, XYZ};
 use std::collections::{HashMap, HashSet};
 
 pub struct Clusterizer {
@@ -7,14 +7,6 @@ pub struct Clusterizer {
     y_j: usize,
     z_j: usize,
     cutoff: f64,
-}
-
-impl kd_tree::KdPoint for XYZ {
-    type Scalar = f64;
-    type Dim = typenum::U3;
-    fn at(&self, i: usize) -> f64 {
-        self.coords[i]
-    }
 }
 
 impl Clusterizer {
