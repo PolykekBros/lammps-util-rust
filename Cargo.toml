@@ -9,8 +9,12 @@ memmap2 = "0.9.5"
 typenum = "1.17.0"
 
 [workspace]
-members = [ "crater-analysis","density-distribution"]
+members = [ "crater-analysis","density-distribution", "surface-analysis"]
 
 [workspace.dependencies]
+anyhow = "1.0.95"
+itertools = "0.14.0"
+nalgebra = "0.33.2"
+colorgrad = "0.7.0"
 clap = { version = "4.5.20", features = ["derive"] }
 plotters = "0.3.7"

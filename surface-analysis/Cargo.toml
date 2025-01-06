@@ -1,0 +1,13 @@
+[package]
+name = "surface-analysis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lammps-util-rust = { path = "../"}
+clap = { workspace = true }
+colorgrad = { workspace = true }
+itertools = { workspace = true }
+nalgebra = { workspace = true }
+anyhow = { workspace = true }
+plotters = { workspace = true }
