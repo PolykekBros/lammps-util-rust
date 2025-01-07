@@ -1,15 +1,19 @@
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use colorgrad::preset::viridis;
-use itertools::izip;
-use lammps_util_rust::{DumpFile, DumpSnapshot};
+use itertools::{izip, Itertools};
+use lammps_util_rust::DumpFile;
 use nalgebra::{point, DMatrix, DVector, Point3};
 use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, IntoDrawingArea},
     style::WHITE,
 };
-use std::path::{Path, PathBuf};
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    path::{Path, PathBuf},
+};
 
 mod heatmap;
 use heatmap::{heatmap, Colorbar, Domain};
@@ -112,20 +116,44 @@ fn plot_surface_2d(output_dir: &Path, values: &DMatrix<f64>, domain: &Domain) ->
 }
 
 fn parse_dump_final(
-    snapshot: &DumpSnapshot,
+    dump_final_path: &Path,
     domain: &Domain,
     square_width: f64,
     zero_lvl: f64,
-) -> DMatrix<f64> {
+) -> Result<DMatrix<f64>> {
+    println!("{}", dump_final_path.to_string_lossy());
+    let parent_dir = dump_final_path.parent().ok_or(anyhow!(
+        "Unable to take parent directory: {}",
+        dump_final_path.to_string_lossy()
+    ))?;
+    let surface_coords_txt = parent_dir.join("surface_coords.txt");
+
+    let dump_final = DumpFile::read(dump_final_path, &[])?;
+    let snapshot = dump_final.get_snapshots()[0];
     let snapshot_x = DVector::from_column_slice(snapshot.get_property("x"));
     let snapshot_y = DVector::from_column_slice(snapshot.get_property("y"));
     let snapshot_z = DVector::from_column_slice(snapshot.get_property("z"));
     let xyz = izip![snapshot_x.iter(), snapshot_y.iter(), snapshot_z.iter()]
         .map(|(&x, &y, &z)| point![x, y, z])
         .collect::<Vec<_>>();
-    let values = get_surface_values(&xyz, domain, square_width);
+    let values = get_surface_values(&xyz, domain, square_width).add_scalar(-zero_lvl);
+    plot_surface_2d(parent_dir, &values, domain)?;
+    write_surface_coords(&surface_coords_txt, domain, &values)?;
     println!("values.shape: {:?}", values.shape());
-    values.add_scalar(-zero_lvl)
+    Ok(values)
+}
+
+fn write_surface_coords(path: &Path, domain: &Domain, values: &DMatrix<f64>) -> Result<()> {
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+    writeln!(writer, "{} {}", domain.lo().x, domain.lo().y)?;
+    writeln!(writer, "{} {}", domain.hi().x, domain.hi().y)?;
+    values.row_iter().try_for_each(|row| {
+        let line = row.iter().map(ToString::to_string).join(" ");
+        writeln!(writer, "{line}")?;
+        anyhow::Ok(())
+    })?;
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -138,23 +166,11 @@ fn main() -> Result<()> {
         point![snapshot.sym_box.xlo, snapshot.sym_box.ylo],
         point![snapshot.sym_box.xhi, snapshot.sym_box.yhi],
     );
-    println!("{}", dump_final_path.to_string_lossy());
-    let values = parse_dump_final(snapshot, &domain, cli.width, cli.zero_lvl);
+    let values = parse_dump_final(dump_final_path, &domain, cli.width, cli.zero_lvl)?;
     let values = cli.dump_final[1..]
         .iter()
         .try_fold(values, |values, dump_final_path| {
-            let parent_dir = dump_final_path.parent().ok_or(anyhow!(
-                "Unable to take parent directory: {}",
-                dump_final_path.to_string_lossy()
-            ))?;
-            let _surface_coords_txt = parent_dir.join("surface_coords.txt");
-
-            let dump_final = DumpFile::read(dump_final_path, &[])?;
-            let snapshot = dump_final.get_snapshots()[0];
-            println!("{}", dump_final_path.to_string_lossy());
-            let values_new = parse_dump_final(snapshot, &domain, cli.width, cli.zero_lvl);
-
-            plot_surface_2d(parent_dir, &values_new, &domain)?;
+            let values_new = parse_dump_final(dump_final_path, &domain, cli.width, cli.zero_lvl)?;
             anyhow::Ok::<DMatrix<f64>>(values + values_new)
         })?;
     if let Some(output_dir) = cli.output_dir {
