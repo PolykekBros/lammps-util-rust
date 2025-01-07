@@ -70,9 +70,10 @@ impl<T: Gradient> Colorbar<T> {
 
     pub fn draw<DB: DrawingBackend>(&self, mut chart_builder: ChartBuilder<DB>) {
         let &Self { min, max, .. } = self;
-        let step = (max - min) / 256.0;
+        let step = (max - min) / 255.0;
         let mut chart_context = chart_builder
             .margin_top(10)
+            .margin_right(15)
             .x_label_area_size(25)
             .y_label_area_size(40)
             .build_cartesian_2d(0.0..1.0, min..max)
@@ -84,16 +85,14 @@ impl<T: Gradient> Colorbar<T> {
             .disable_x_mesh()
             .disable_y_mesh()
             .axis_style(BLACK)
-            .label_style("sans-serif".into_font().color(&BLACK))
+            .label_style(("sans-serif", 16).into_font().color(&BLACK))
             .draw()
             .unwrap();
         let plotting_area = chart_context.plotting_area();
         range_f64(min, max, 256).iter().for_each(|&value| {
             let color = self.color(value);
-            let rectangle = Rectangle::new(
-                [(0.0, value - step / 2.0), (1.0, value + step / 2.0)],
-                filled_style(color),
-            );
+            let rectangle =
+                Rectangle::new([(0.0, value), (1.0, value + step)], filled_style(color));
             plotting_area.draw(&rectangle).unwrap();
         });
     }
@@ -122,16 +121,16 @@ pub fn heatmap<DB: DrawingBackend, T: Gradient>(
         .disable_y_mesh()
         .set_all_tick_mark_size(5)
         .axis_style(BLACK)
-        .label_style("sans-serif".into_font().color(&BLACK))
+        .label_style(("sans-serif", 16).into_font().color(&BLACK))
         .draw()
         .unwrap();
 
     let plotting_area = chart_context.plotting_area();
 
-    let x_count = data.shape().1;
+    let x_count = data.shape().0;
     let x_values = (0..x_count).collect::<Vec<_>>();
     let x_step = domain.width() / x_count as f64;
-    let y_count = data.shape().0;
+    let y_count = data.shape().1;
     let y_values = (0..y_count).collect::<Vec<_>>();
     let y_step = domain.height() / y_count as f64;
 
@@ -140,7 +139,7 @@ pub fn heatmap<DB: DrawingBackend, T: Gradient>(
         y_values.iter().for_each(|&y| {
             let r_y = domain.lo().y + y as f64 * y_step;
             let rectangle = Rectangle::new(
-                [(r_x, r_y), (r_x + x_step, r_y + y_step)],
+                [(r_y, r_x), (r_y + y_step, r_x + x_step)],
                 filled_style(colorbar.color(data[(x, y)])),
             );
             plotting_area.draw(&rectangle).unwrap();
