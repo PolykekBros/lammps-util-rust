@@ -1,8 +1,8 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use colorgrad::preset::viridis;
 use itertools::izip;
-use lammps_util_rust::DumpFile;
+use lammps_util_rust::{DumpFile, DumpSnapshot};
 use nalgebra::{point, DMatrix, DVector, Point3};
 use plotters::{
     chart::ChartBuilder,
@@ -17,14 +17,21 @@ use heatmap::{heatmap, Colorbar, Domain};
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    #[arg(value_name = "DUMP FINAL")]
-    dump_final_file: PathBuf,
+    /// Input files of the final crystal
+    #[arg()]
+    dump_final: Vec<PathBuf>,
 
-    #[arg(value_name = "OUTPUT DIR")]
-    output_dir: PathBuf,
+    /// Directory where to save resulting plots and tables
+    #[arg(short, long)]
+    output_dir: Option<PathBuf>,
 
-    #[arg(short, long, value_name = "SQUARE WIDTH (A)", default_value_t = 5.43 / 2.0)]
+    /// Width of the approximation square (A)
+    #[arg(short, long, default_value_t = 5.43 / 2.0)]
     width: f64,
+
+    /// Zero level of the crystal surface (A)
+    #[arg(short, long)]
+    zero_lvl: f64,
 }
 
 fn get_surface_values(xyz: &[Point3<f64>], domain: &Domain, square_width: f64) -> DMatrix<f64> {
@@ -104,24 +111,51 @@ fn plot_surface_2d(output_dir: &Path, values: &DMatrix<f64>, domain: &Domain) ->
     Ok(())
 }
 
-fn main() -> Result<()> {
-    let zero_lvl = 82.7813;
-    let cli = Cli::parse();
-    let dump_final = DumpFile::read(&cli.dump_final_file, &[])?;
-    let snapshot = dump_final.get_snapshots()[0];
+fn parse_dump_final(
+    snapshot: &DumpSnapshot,
+    domain: &Domain,
+    square_width: f64,
+    zero_lvl: f64,
+) -> DMatrix<f64> {
     let snapshot_x = DVector::from_column_slice(snapshot.get_property("x"));
     let snapshot_y = DVector::from_column_slice(snapshot.get_property("y"));
     let snapshot_z = DVector::from_column_slice(snapshot.get_property("z"));
-    let domain = Domain::new(
-        point![snapshot_x.min(), snapshot_y.min()],
-        point![snapshot_x.max(), snapshot_y.max()],
-    );
     let xyz = izip![snapshot_x.iter(), snapshot_y.iter(), snapshot_z.iter()]
         .map(|(&x, &y, &z)| point![x, y, z])
         .collect::<Vec<_>>();
-    let values = get_surface_values(&xyz, &domain, cli.width);
-    let values = values.add_scalar(-zero_lvl);
+    let values = get_surface_values(&xyz, domain, square_width);
     println!("values.shape: {:?}", values.shape());
-    plot_surface_2d(&cli.output_dir, &values, &domain)?;
+    values.add_scalar(-zero_lvl)
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    let dump_final = DumpFile::read(&cli.dump_final[0], &[])?;
+    let snapshot = dump_final.get_snapshots()[0];
+    let domain = Domain::new(
+        point![snapshot.sym_box.xlo, snapshot.sym_box.ylo],
+        point![snapshot.sym_box.xhi, snapshot.sym_box.yhi],
+    );
+    let values = parse_dump_final(snapshot, &domain, cli.width, cli.zero_lvl);
+    let values = cli.dump_final[1..]
+        .iter()
+        .try_fold(values, |values, dump_final_path| {
+            let parent_dir = dump_final_path.parent().ok_or(anyhow!(
+                "Unable to take parent directory: {}",
+                dump_final_path.to_string_lossy()
+            ))?;
+            let _surface_coords_txt = parent_dir.join("surface_coords.txt");
+
+            let dump_final = DumpFile::read(dump_final_path, &[])?;
+            let snapshot = dump_final.get_snapshots()[0];
+            let values_new = parse_dump_final(snapshot, &domain, cli.width, cli.zero_lvl);
+
+            plot_surface_2d(parent_dir, &values_new, &domain)?;
+            anyhow::Ok::<DMatrix<f64>>(values + values_new)
+        })?;
+    if let Some(output_dir) = cli.output_dir {
+        plot_surface_2d(&output_dir, &values, &domain)?;
+    }
     Ok(())
 }
