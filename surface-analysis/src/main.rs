@@ -176,6 +176,8 @@ fn main() -> Result<()> {
     if let Some(output_dir) = cli.output_dir {
         let values = values.scale(1.0 / cli.dump_final.len() as f64);
         plot_surface_2d(&output_dir, &values, &domain)?;
+        let surface_coords_txt = output_dir.join("surface_coords.txt");
+        write_surface_coords(&surface_coords_txt, &domain, &values)?;
     }
     Ok(())
 }
