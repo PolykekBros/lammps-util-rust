@@ -139,7 +139,7 @@ pub fn heatmap<DB: DrawingBackend, T: Gradient>(
         y_values.iter().for_each(|&y| {
             let r_y = domain.lo().y + y as f64 * y_step;
             let rectangle = Rectangle::new(
-                [(r_y, r_x), (r_y + y_step, r_x + x_step)],
+                [(r_x, r_y), (r_x + x_step, r_y + y_step)],
                 filled_style(colorbar.color(data[(x, y)])),
             );
             plotting_area.draw(&rectangle).unwrap();
