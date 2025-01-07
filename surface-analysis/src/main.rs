@@ -131,12 +131,14 @@ fn parse_dump_final(
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let dump_final = DumpFile::read(&cli.dump_final[0], &[])?;
+    let dump_final_path = &cli.dump_final[0];
+    let dump_final = DumpFile::read(dump_final_path, &[])?;
     let snapshot = dump_final.get_snapshots()[0];
     let domain = Domain::new(
         point![snapshot.sym_box.xlo, snapshot.sym_box.ylo],
         point![snapshot.sym_box.xhi, snapshot.sym_box.yhi],
     );
+    println!("{}", dump_final_path.to_string_lossy());
     let values = parse_dump_final(snapshot, &domain, cli.width, cli.zero_lvl);
     let values = cli.dump_final[1..]
         .iter()
@@ -149,12 +151,14 @@ fn main() -> Result<()> {
 
             let dump_final = DumpFile::read(dump_final_path, &[])?;
             let snapshot = dump_final.get_snapshots()[0];
+            println!("{}", dump_final_path.to_string_lossy());
             let values_new = parse_dump_final(snapshot, &domain, cli.width, cli.zero_lvl);
 
             plot_surface_2d(parent_dir, &values_new, &domain)?;
             anyhow::Ok::<DMatrix<f64>>(values + values_new)
         })?;
     if let Some(output_dir) = cli.output_dir {
+        let values = values.scale(1.0 / cli.dump_final.len() as f64);
         plot_surface_2d(&output_dir, &values, &domain)?;
     }
     Ok(())
