@@ -5,11 +5,13 @@ edition = "2021"
 
 [dependencies]
 kd-tree = "0.6.0"
-memmap2 = "0.9.5"
 typenum = "1.17.0"
+anyhow = { workspace=true }
+nalgebra = { workspace=true }
+itertools = { workspace=true }
 
 [workspace]
-members = [ "crater-analysis","density-distribution", "surface-analysis"]
+members = [ "component-shift", "crater-analysis","density-distribution", "surface-analysis"]
 
 [workspace.dependencies]
 anyhow = "1.0.95"

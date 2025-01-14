@@ -1,32 +1,12 @@
 use kd_tree::KdPoint;
-use std::hash::{Hash, Hasher};
+use nalgebra::Point3;
+use std::{
+    hash::{Hash, Hasher},
+    ops::{Deref, DerefMut},
+};
 
-#[derive(Debug, Clone, Copy)]
-pub struct XYZ {
-    coords: [f64; 3],
-}
-
-impl XYZ {
-    pub fn from(coords: [f64; 3]) -> Self {
-        Self { coords }
-    }
-
-    pub fn x(&self) -> f64 {
-        self.coords[0]
-    }
-    pub fn y(&self) -> f64 {
-        self.coords[1]
-    }
-    pub fn z(&self) -> f64 {
-        self.coords[2]
-    }
-}
-
-impl PartialEq for XYZ {
-    fn eq(&self, other: &Self) -> bool {
-        self.coords == other.coords
-    }
-}
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct XYZ(Point3<f64>, usize);
 
 impl Eq for XYZ {}
 
@@ -38,6 +18,19 @@ impl Hash for XYZ {
     }
 }
 
+impl Deref for XYZ {
+    type Target = Point3<f64>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for XYZ {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl KdPoint for XYZ {
     type Scalar = f64;
     type Dim = typenum::U3;
@@ -46,9 +39,16 @@ impl KdPoint for XYZ {
     }
 }
 
+impl XYZ {
+    pub fn from(xyz: [f64; 3], i: usize) -> Self {
+        Self(xyz.into(), i)
+    }
+
+    pub fn index(&self) -> usize {
+        self.1
+    }
+}
+
 pub fn check_cutoff(a: XYZ, b: XYZ, cutoff: f64) -> bool {
-    let d_x = a.x() - b.x();
-    let d_y = a.y() - b.y();
-    let d_z = a.z() - b.z();
-    d_x * d_x + d_y * d_y + d_z * d_z <= cutoff * cutoff
+    nalgebra::distance_squared(&a, &b) <= cutoff * cutoff
 }

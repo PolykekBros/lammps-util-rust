@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io;
 
+use itertools::izip;
+
 use crate::dump_file::DumpParsingError;
+use crate::XYZ;
 
 pub const HEADER_TIMESTEP: &str = "ITEM: TIMESTEP";
 pub const HEADER_NUM_OF_ATOMS: &str = "ITEM: NUMBER OF ATOMS";
@@ -137,7 +140,6 @@ impl DumpSnapshot {
         Ok(())
     }
 
-    #[inline]
     pub fn get_keys_map(&self) -> &HashMap<String, usize> {
         &self.keys
     }
@@ -148,7 +150,6 @@ impl DumpSnapshot {
         keys.into_iter().map(|i| i.0.as_str()).collect()
     }
 
-    #[inline]
     pub fn get_property_index(&self, key: &str) -> usize {
         self.keys[key]
     }
@@ -165,22 +166,30 @@ impl DumpSnapshot {
         &mut self.atoms[start..end]
     }
 
-    #[inline]
     pub fn get_atom_value(&self, property_index: usize, atom_index: usize) -> f64 {
         self.atoms[self.atoms_count * property_index + atom_index]
     }
 
-    #[inline]
     pub fn set_atom_value(&mut self, property_index: usize, atom_index: usize, value: f64) {
         self.atoms[self.atoms_count * property_index + atom_index] = value
     }
 
-    #[inline]
     pub fn get_zero_lvl(&self) -> f64 {
         self.get_property("z")
             .iter()
             .copied()
             .fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    pub fn get_coordinates(&self) -> Vec<XYZ> {
+        izip!(
+            self.get_property("x").iter(),
+            self.get_property("y").iter(),
+            self.get_property("z").iter()
+        )
+        .enumerate()
+        .map(|(i, (&x, &y, &z))| XYZ::from([x, y, z], i))
+        .collect()
     }
 }
 
