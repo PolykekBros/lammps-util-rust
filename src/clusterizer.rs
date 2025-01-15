@@ -42,3 +42,19 @@ fn get_clusters(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<usize>
     }
     map
 }
+
+pub fn get_max_cluster(snapshot: &DumpSnapshot) -> usize {
+    let cluster = snapshot.get_property("cluster");
+    let mut cluster_cnt = HashMap::new();
+    for cluster in cluster {
+        let cnt = cluster_cnt.entry(*cluster as usize).or_insert(0);
+        *cnt += 1;
+    }
+    let mut max_cluster = usize::MIN;
+    for (cluster, cnt) in cluster_cnt {
+        if cnt > max_cluster {
+            max_cluster = cluster;
+        }
+    }
+    max_cluster
+}
