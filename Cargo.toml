@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-kd-tree = "0.6.0"
 typenum = "1.17.0"
+kd-tree = { workspace=true }
 anyhow = { workspace=true }
 nalgebra = { workspace=true }
 itertools = { workspace=true }
@@ -14,6 +14,7 @@ itertools = { workspace=true }
 members = [ "component-shift", "crater-analysis","density-distribution", "surface-analysis"]
 
 [workspace.dependencies]
+kd-tree = "0.6.0"
 anyhow = "1.0.95"
 itertools = "0.14.0"
 nalgebra = "0.33.2"

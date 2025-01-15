@@ -1,9 +1,9 @@
-use crate::{DumpSnapshot, XYZ};
+use crate::{copy_snapshot_with_keys, DumpSnapshot, XYZ};
 use std::collections::{HashMap, HashSet};
 
 pub fn clusterize_snapshot(snapshot: &DumpSnapshot, cutoff: f64) -> DumpSnapshot {
     assert!(cutoff >= 0.0);
-    let mut snapshot = prepare_cluster_snapshot(snapshot);
+    let mut snapshot = copy_snapshot_with_keys(snapshot, ["cluster"].into_iter());
     let coords = snapshot.get_coordinates();
     let clusters = get_clusters(&coords, cutoff);
     let cluster_j = snapshot.get_property_index("cluster");
@@ -15,24 +15,6 @@ pub fn clusterize_snapshot(snapshot: &DumpSnapshot, cutoff: f64) -> DumpSnapshot
             .unwrap();
         let cluster_id = snapshot.get_atom_value(id_j, cluster_i);
         snapshot.set_atom_value(cluster_j, atom_i, cluster_id);
-    }
-    snapshot
-}
-
-fn prepare_cluster_snapshot(input_snapshot: &DumpSnapshot) -> DumpSnapshot {
-    let mut keys = input_snapshot.get_keys_map().clone();
-    let cluster_j = keys.len();
-    keys.insert("cluster".to_string(), cluster_j);
-    let mut snapshot = DumpSnapshot::new(
-        keys,
-        input_snapshot.step,
-        input_snapshot.atoms_count,
-        input_snapshot.sym_box.clone(),
-    );
-    for i in 0..snapshot.atoms_count {
-        for (j, _) in input_snapshot.get_keys().iter().enumerate() {
-            snapshot.set_atom_value(j, i, input_snapshot.get_atom_value(j, i));
-        }
     }
     snapshot
 }

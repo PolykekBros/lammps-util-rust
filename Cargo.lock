@@ -280,7 +280,9 @@ dependencies = [
 name = "crater-analysis"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
+ "kd-tree",
  "lammps-util-rust",
 ]
 
