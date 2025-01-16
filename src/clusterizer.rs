@@ -1,3 +1,5 @@
+use log::debug;
+
 use crate::{copy_snapshot_with_keys, DumpSnapshot, XYZ};
 use std::collections::{HashMap, HashSet};
 
@@ -40,6 +42,7 @@ fn get_clusters(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<usize>
             }
         }
     }
+    debug!("clusters {map:?}");
     map
 }
 
@@ -50,11 +53,10 @@ pub fn get_max_cluster(snapshot: &DumpSnapshot) -> usize {
         let cnt = cluster_cnt.entry(*cluster as usize).or_insert(0);
         *cnt += 1;
     }
-    let mut max_cluster = usize::MIN;
-    for (cluster, cnt) in cluster_cnt {
-        if cnt > max_cluster {
-            max_cluster = cluster;
-        }
-    }
+    debug!("clusters count {cluster_cnt:?}");
+    let (max_cluster, _) = cluster_cnt
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1))
+        .expect("Cluster snapshot is empty");
     max_cluster
 }

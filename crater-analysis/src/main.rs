@@ -22,10 +22,6 @@ struct Cli {
     /// Cutoff (A)
     #[arg(short, long, default_value_t = 3.0)]
     cutoff: f64,
-
-    /// Stripe width (A)
-    #[arg(short, long, default_value_t = 5.43 / 2.0)]
-    width: f64,
 }
 
 fn get_crater_info(snapshot: &DumpSnapshot, zero_lvl: f64) -> String {
@@ -49,6 +45,7 @@ fn get_crater_info(snapshot: &DumpSnapshot, zero_lvl: f64) -> String {
 }
 
 fn main() -> Result<()> {
+    env_logger::init();
     let cli = Cli::parse();
 
     let dump_input = DumpFile::read(&cli.dump_input_file, &[])?;
@@ -59,6 +56,7 @@ fn main() -> Result<()> {
     let snapshot_final = dump_final.get_snapshots()[0];
 
     let snapshot_crater = crater_snapshot(snapshot_input, snapshot_final, 3.0);
+    println!("crater atoms: {}", snapshot_crater.atoms_count);
     let info = get_crater_info(&snapshot_crater, zero_lvl);
 
     let dump_crater = DumpFile::new(vec![snapshot_crater]);

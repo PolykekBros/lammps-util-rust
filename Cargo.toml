@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 typenum = "1.17.0"
+log = {workspace=true}
 kd-tree = { workspace=true }
 anyhow = { workspace=true }
 nalgebra = { workspace=true }
@@ -21,3 +22,5 @@ nalgebra = "0.33.2"
 colorgrad = "0.7.0"
 clap = { version = "4.5.20", features = ["derive"] }
 plotters = "0.3.7"
+log = "0.4.25"
+env_logger = "0.11.6"
