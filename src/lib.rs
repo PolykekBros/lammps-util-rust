@@ -22,14 +22,15 @@ pub fn range_f64(begin: f64, end: f64, count: usize) -> Vec<f64> {
 fn crater_candidates_snapshot(
     initial_snapshot: &DumpSnapshot,
     final_snapshot: &DumpSnapshot,
-    cutoff: f64,
+    candidate_cutoff: f64,
+    cluster_cutoff: f64,
 ) -> DumpSnapshot {
     let initial_coords = initial_snapshot.get_coordinates();
     let final_coords = final_snapshot.get_coordinates();
     let kdtree = kd_tree::KdTree::build_by_ordered_float(final_coords.clone());
     let mut indices = Vec::new();
     for atom in initial_coords {
-        if kdtree.within_radius(&atom, cutoff).is_empty() {
+        if kdtree.within_radius(&atom, candidate_cutoff).is_empty() {
             indices.push(atom.index());
         }
     }
@@ -38,15 +39,21 @@ fn crater_candidates_snapshot(
         "crater candidates atom count: {}",
         candidates_snapshot.atoms_count
     );
-    clusterize_snapshot(&candidates_snapshot, 3.0)
+    clusterize_snapshot(&candidates_snapshot, cluster_cutoff)
 }
 
 pub fn crater_snapshot(
     initial_snapshot: &DumpSnapshot,
     final_snapshot: &DumpSnapshot,
-    cutoff: f64,
+    candidate_cutoff: f64,
+    cluster_cutoff: f64,
 ) -> DumpSnapshot {
-    let candidates_snapshot = &crater_candidates_snapshot(initial_snapshot, final_snapshot, cutoff);
+    let candidates_snapshot = &crater_candidates_snapshot(
+        initial_snapshot,
+        final_snapshot,
+        candidate_cutoff,
+        cluster_cutoff,
+    );
     let max_cluster = get_max_cluster(candidates_snapshot);
     let cluster = candidates_snapshot.get_property("cluster");
     let indices = cluster

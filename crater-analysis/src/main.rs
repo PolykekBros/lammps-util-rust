@@ -55,7 +55,7 @@ fn main() -> Result<()> {
     let dump_final = DumpFile::read(&cli.dump_final_file, &[])?;
     let snapshot_final = dump_final.get_snapshots()[0];
 
-    let snapshot_crater = crater_snapshot(snapshot_input, snapshot_final, 3.0);
+    let snapshot_crater = crater_snapshot(snapshot_input, snapshot_final, cli.cutoff, 3.0);
     println!("crater atoms: {}", snapshot_crater.atoms_count);
     let info = get_crater_info(&snapshot_crater, zero_lvl);
 
