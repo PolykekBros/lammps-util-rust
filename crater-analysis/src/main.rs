@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use lammps_util_rust::{crater_snapshot, DumpFile, DumpSnapshot};
+use log::debug;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -56,7 +57,7 @@ fn main() -> Result<()> {
     let snapshot_final = dump_final.get_snapshots()[0];
 
     let snapshot_crater = crater_snapshot(snapshot_input, snapshot_final, cli.cutoff, 3.0);
-    println!("crater atoms: {}", snapshot_crater.atoms_count);
+    debug!("crater atoms: {}", snapshot_crater.atoms_count);
     let info = get_crater_info(&snapshot_crater, zero_lvl);
 
     let dump_crater = DumpFile::new(vec![snapshot_crater]);
