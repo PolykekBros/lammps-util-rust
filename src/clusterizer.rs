@@ -7,7 +7,7 @@ pub fn clusterize_snapshot(snapshot: &DumpSnapshot, cutoff: f64) -> DumpSnapshot
     assert!(cutoff >= 0.0);
     let mut snapshot = copy_snapshot_with_keys(snapshot, ["cluster"].into_iter());
     let coords = snapshot.get_coordinates();
-    let clusters = get_clusters(&coords, cutoff);
+    let clusters = clusterize_coords(&coords, cutoff);
     let cluster_j = snapshot.get_property_index("cluster");
     let id_j = snapshot.get_property_index("id");
     for atom_i in 0..snapshot.atoms_count {
@@ -21,7 +21,7 @@ pub fn clusterize_snapshot(snapshot: &DumpSnapshot, cutoff: f64) -> DumpSnapshot
     snapshot
 }
 
-fn get_clusters(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<usize>> {
+fn clusterize_coords(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<usize>> {
     let kdtree = kd_tree::KdTree::build_by_ordered_float(coords.clone());
     let mut visited = vec![false; coords.len()];
     let mut map = HashMap::new();
@@ -46,14 +46,19 @@ fn get_clusters(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<usize>
     map
 }
 
-pub fn get_max_cluster(snapshot: &DumpSnapshot) -> usize {
-    let cluster = snapshot.get_property("cluster");
+pub fn get_cluster_counts(snapshot: &DumpSnapshot) -> HashMap<usize, usize> {
+    let clusters = snapshot.get_property("cluster");
     let mut cluster_cnt = HashMap::new();
-    for cluster in cluster {
+    for cluster in clusters {
         let cnt = cluster_cnt.entry(*cluster as usize).or_insert(0);
         *cnt += 1;
     }
     debug!("clusters count {cluster_cnt:?}");
+    cluster_cnt
+}
+
+pub fn get_max_cluster_id(snapshot: &DumpSnapshot) -> usize {
+    let cluster_cnt = get_cluster_counts(snapshot);
     let (max_cluster, _) = cluster_cnt
         .into_iter()
         .max_by(|a, b| a.1.cmp(&b.1))

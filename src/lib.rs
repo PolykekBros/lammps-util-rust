@@ -5,7 +5,7 @@ mod xyz;
 
 use log::debug;
 
-pub use clusterizer::{clusterize_snapshot, get_max_cluster};
+pub use clusterizer::{clusterize_snapshot, get_cluster_counts, get_max_cluster_id};
 pub use dump_file::DumpFile;
 pub use dump_snapshot::{
     copy_snapshot, copy_snapshot_with_indices, copy_snapshot_with_indices_with_keys,
@@ -54,7 +54,7 @@ pub fn crater_snapshot(
         candidate_cutoff,
         cluster_cutoff,
     );
-    let max_cluster = get_max_cluster(candidates_snapshot);
+    let max_cluster = get_max_cluster_id(candidates_snapshot);
     let cluster = candidates_snapshot.get_property("cluster");
     let indices = cluster
         .iter()

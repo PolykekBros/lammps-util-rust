@@ -988,6 +988,7 @@ dependencies = [
  "env_logger",
  "lammps-util-rust",
  "log",
+ "nalgebra",
 ]
 
 [[package]]
