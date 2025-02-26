@@ -7,7 +7,6 @@ use log::info;
 use nalgebra::{vector, Vector2};
 use regex::Regex;
 use std::{
-    array::from_fn,
     collections::HashSet,
     fs::{read_dir, File},
     io::{BufRead, BufReader},
@@ -109,7 +108,7 @@ fn angle_between_vectors(a: Vector2<f64>, b: Vector2<f64>) -> f64 {
 
 fn get_angle_distribution(snap: &DumpSnapshot, center: Vector2<f64>) -> [Vec<f64>; DATA_LEN] {
     let start = vector![0.0, -1.0];
-    let mut radii = from_fn(|_| Vec::new());
+    let mut radii = [const { Vec::new() }; DATA_LEN];
     for coord in snap
         .get_coordinates()
         .into_iter()
@@ -134,7 +133,7 @@ fn get_std(values: &[f64]) -> f64 {
 }
 
 fn get_data(radii: [Vec<f64>; DATA_LEN]) -> [[f64; 5]; DATA_LEN] {
-    let mut data = from_fn(|_| [0.0; 5]);
+    let mut data = [const { [0.0; 5] }; DATA_LEN];
     for (i, values) in radii.iter().enumerate() {
         let mean = get_mean(values);
         let cnt = values.len() as f64;
@@ -172,7 +171,7 @@ fn main() -> Result<()> {
         Commands::Single { dir } => parse_run_dir(&dir, cli.cutoff)?,
         Commands::All { dir } => {
             let re = Regex::new(r"^run_\d+$")?;
-            let mut radii = from_fn(|_| Vec::new());
+            let mut radii = [const { Vec::new() }; DATA_LEN];
             for entry in read_dir(&dir)? {
                 let run_dir = entry?.path();
                 if !re.is_match(&run_dir.file_name().unwrap_or_default().to_string_lossy()) {
