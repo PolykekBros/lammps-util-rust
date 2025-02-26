@@ -1,19 +1,21 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use lammps_util_rust::{
     clusterize_snapshot, copy_snapshot_with_indices, get_cluster_counts, DumpFile, DumpSnapshot,
 };
 use log::info;
-use nalgebra::{Vector1, Vector2};
+use nalgebra::{vector, Vector2};
 use std::{
     collections::HashSet,
     fs::File,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 const RIM_THRESHOLD: usize = 50;
 const CLUSTER_TRAJECTORY_LINE: usize = 38;
+const ANGLE_ROTATION: usize = 10;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -69,45 +71,56 @@ fn rim_snapshot(
     copy_snapshot_with_indices(&clusters, indices)
 }
 
-fn get_center_pos(cluster_xyz_path: &Path) -> Result<(f64, f64)> {
-    let file = File::open(cluster_xyz_path).with_context(|| {
-        format!(
-            "Failed to read cluster trajectory from {}",
-            cluster_xyz_path.display()
-        )
-    })?;
-    let reader = BufReader::new(file);
-    let line =
-        reader
-            .lines()
-            .nth(CLUSTER_TRAJECTORY_LINE - 1)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Failed to read line {CLUSTER_TRAJECTORY_LINE} from cluster trajectory",
-                )
-            })??;
-    let mut tokens = line.split_whitespace();
-    tokens.next();
-    let x = tokens
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Missing X coordinate in line {CLUSTER_TRAJECTORY_LINE}"))?
-        .parse::<f64>()
+fn get_center_pos(cluster_xyz_path: &Path) -> Result<Vector2<f64>> {
+    let reader = File::open(cluster_xyz_path)
+        .map(BufReader::new)
         .with_context(|| {
-            format!("Failed to parse X coordinate in line {CLUSTER_TRAJECTORY_LINE}",)
+            format!(
+                "Failed to read cluster trajectory from {}",
+                cluster_xyz_path.display()
+            )
         })?;
-    let y = tokens
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Missing Y coordinate in line {CLUSTER_TRAJECTORY_LINE}"))?
-        .parse::<f64>()
-        .with_context(|| {
-            format!("Failed to parse Y coordinate in line {CLUSTER_TRAJECTORY_LINE}",)
-        })?;
-    Ok((x, y))
+    let Some(Ok(line)) = reader.lines().nth(CLUSTER_TRAJECTORY_LINE - 1) else {
+        bail!("Failed to read line {CLUSTER_TRAJECTORY_LINE} from cluster trajectory");
+    };
+    let mut iter = line.split_whitespace().skip(1).map(f64::from_str);
+    let Some((Ok(x), Ok(y))) = iter.next().zip(iter.next()) else {
+        bail!("Failed to parse XY coordinates in the line {CLUSTER_TRAJECTORY_LINE}");
+    };
+    vector![x, y];
 }
 
-fn get_angle_distribution(snap: &DumpSnapshot, center_x: f64, center_y: f64) -> Vec<usize> {
-    let center = vector![center_x, center_y];
-    let coords = snap.get_coordinates().into_iter().map(|xyz| Vector2)
+fn angle_between_vectors(a: Vector2<f64>, b: Vector2<f64>) -> f64 {
+    let dot = a.dot(&b);
+    let a_len = a.norm();
+    let b_len = b.norm();
+    let cos_theta = dot / (a_len * b_len);
+    let cos_theta = cos_theta.clamp(-1.0, 1.0);
+    let angle_radians = cos_theta.acos();
+    let angle_degrees = angle_radians * 180.0 / PI;
+    angle_degrees
+}
+
+fn get_angle_distribution(
+    snap: &DumpSnapshot,
+    center: Vector2<f64>,
+) -> (Vec<Vec<f64>>, Vec<usize>) {
+    let start = vector![0, -1];
+    let mut radii = vec![Vec::new(); 360 / ANGLE_ROTATION];
+    let mut count = vec![0; 360 / ANGLE_ROTATION];
+    for coord in snap
+        .get_coordinates()
+        .into_iter()
+        .map(|xyz| vector![xyz.x, xyz.y] - center)
+    {
+        let angle = start.angle(&coord).to_degrees();
+        let angle = (angle + 360.0) % 360.0;
+        let index = (angle / ANGLE_ROTATION as f64) as usize;
+        let radius = coord.magnitude();
+        count[index] += 1;
+        radii[index].push(radius);
+    }
+    (radii, count)
 }
 
 fn main() -> Result<()> {
@@ -120,9 +133,9 @@ fn main() -> Result<()> {
     let dump_final = DumpFile::read(&cli.dump_final_file, &[])?;
     let snapshot_final = dump_final.get_snapshots()[0];
 
-    let (center_x, center_y) = get_center_pos(&cli.output_dir.join("cluster_xyz.txt"))
+    let center = get_center_pos(&cli.output_dir.join("cluster_xyz.txt"))
         .context("Failed to get center position")?;
-    info!("cluster center: ({center_x}, {center_y})");
+    info!("cluster center: {center}");
     let rim = rim_snapshot(snapshot_input, snapshot_final, cli.cutoff);
 
     info!("rim count: {}", rim.atoms_count);
