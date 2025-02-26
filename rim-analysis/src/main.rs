@@ -5,10 +5,11 @@ use lammps_util_rust::{
 };
 use log::info;
 use nalgebra::{vector, Vector2};
+use regex::Regex;
 use std::{
     array::from_fn,
     collections::HashSet,
-    fs::File,
+    fs::{read_dir, File},
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     str::FromStr,
@@ -56,7 +57,7 @@ fn get_above_zero(snap: &DumpSnapshot, zero_lvl: f64) -> DumpSnapshot {
 }
 
 fn filter_clusters(snap: &DumpSnapshot) -> HashSet<usize> {
-    let cnts = get_cluster_counts(&snap);
+    let cnts = get_cluster_counts(snap);
     cnts.iter()
         .filter(|(_, &cnt)| cnt >= RIM_THRESHOLD)
         .map(|(&id, _)| id)
@@ -135,14 +136,14 @@ fn get_std(values: &[f64]) -> f64 {
 fn get_data(radii: [Vec<f64>; DATA_LEN]) -> [[f64; 5]; DATA_LEN] {
     let mut data = from_fn(|_| [0.0; 5]);
     for (i, values) in radii.iter().enumerate() {
-        let mean = get_mean(&values);
+        let mean = get_mean(values);
         let cnt = values.len() as f64;
         data[i] = [
             (i * ANGLE_ROTATION + ANGLE_ROTATION / 2) as f64,
             cnt,
             mean,
             cnt * mean,
-            get_std(&values),
+            get_std(values),
         ]
     }
     data
@@ -169,7 +170,20 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let radii = match cli.command {
         Commands::Single { dir } => parse_run_dir(&dir, cli.cutoff)?,
-        Commands::All { dir } => parse_run_dir(&dir, cli.cutoff)?,
+        Commands::All { dir } => {
+            let re = Regex::new(r"^run_\d+$")?;
+            let mut radii = from_fn(|_| Vec::new());
+            for entry in read_dir(&dir)? {
+                let run_dir = entry?.path();
+                if !re.is_match(&run_dir.file_name().unwrap_or_default().to_string_lossy()) {
+                    continue;
+                }
+                for (i, r) in parse_run_dir(&run_dir, cli.cutoff)?.iter().enumerate() {
+                    radii[i].extend(r);
+                }
+            }
+            radii
+        }
     };
     let data = get_data(radii);
     info!("data: {data:?}");
