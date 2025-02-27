@@ -101,20 +101,23 @@ fn get_center_pos(cluster_xyz_path: &Path) -> Result<Vector2<f64>> {
     Ok(vector![x, y])
 }
 
-fn angle_between_vectors(a: Vector2<f64>, b: Vector2<f64>) -> f64 {
-    let angle = a.y.atan2(a.x) - b.y.atan2(b.x);
-    angle.to_degrees() + 180.0
+fn rim_atom_rotation(v: Vector2<f64>) -> f64 {
+    let angle = (-v.y / v.magnitude()).acos().to_degrees();
+    if v.x > 0.0 {
+        angle
+    } else {
+        360.0 - angle
+    }
 }
 
 fn get_angle_distribution(snap: &DumpSnapshot, center: Vector2<f64>) -> [Vec<f64>; DATA_LEN] {
-    let start = vector![0.0, -1.0];
     let mut radii = [const { Vec::new() }; DATA_LEN];
     for coord in snap
         .get_coordinates()
         .into_iter()
         .map(|xyz| vector![xyz.x, xyz.y] - center)
     {
-        let angle = angle_between_vectors(start, coord);
+        let angle = rim_atom_rotation(coord);
         let index = (angle / ANGLE_ROTATION as f64) as usize;
         let radius = coord.magnitude();
         radii[index].push(radius);
@@ -186,5 +189,32 @@ fn main() -> Result<()> {
     };
     let data = get_data(radii);
     info!("data: {data:?}");
+    for row in data {
+        let line = row
+            .iter()
+            .map(|n| format!("{n:10.4}"))
+            .collect::<Vec<String>>()
+            .join(" ");
+        println!("{line}");
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_float_eq::assert_float_absolute_eq;
+
+    use super::*; // Import the `add` function from the parent module
+
+    #[test]
+    fn rim_atom_rotation_test() {
+        assert_float_absolute_eq!(rim_atom_rotation(vector![1.0, -1.0]), 45.0, 1e-6);
+        assert_float_absolute_eq!(rim_atom_rotation(vector![1.0, 0.0]), 90.0, 1e-6);
+        assert_float_absolute_eq!(rim_atom_rotation(vector![1.0, 1.0]), 135.0, 1e-6);
+        assert_float_absolute_eq!(rim_atom_rotation(vector![0.0, 1.0]), 180.0, 1e-6);
+        assert_float_absolute_eq!(rim_atom_rotation(vector![-1.0, 1.0]), 225.0, 1e-6);
+        assert_float_absolute_eq!(rim_atom_rotation(vector![-1.0, 0.0]), 270.0, 1e-6);
+        assert_float_absolute_eq!(rim_atom_rotation(vector![-1.0, -1.0]), 315.0, 1e-6);
+        assert_float_absolute_eq!(rim_atom_rotation(vector![0.0, -1.0]), 360.0, 1e-6);
+    }
 }
