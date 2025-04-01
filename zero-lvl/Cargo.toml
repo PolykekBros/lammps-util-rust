@@ -1,0 +1,10 @@
+[package]
+name = "zero-lvl"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lammps-util-rust = { path = "../"}
+env_logger = { workspace=true }
+anyhow = { workspace = true }
+clap = { workspace = true }
