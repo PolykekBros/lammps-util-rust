@@ -34,7 +34,7 @@ fn get_ids_to_delete(dump_path: &Path) -> Result<Vec<usize>> {
 
 fn delete_atoms(in_file: &Path, out_file: &Path, ids: &[usize]) -> Result<()> {
     let reader = BufReader::new(File::open(in_file)?);
-    let mut writer = BufWriter::new(File::open(out_file)?);
+    let mut writer = BufWriter::new(File::create(out_file)?);
     for (cnt, line) in reader.lines().enumerate() {
         let line = line?;
         let mut tokens = line.split(' ');
