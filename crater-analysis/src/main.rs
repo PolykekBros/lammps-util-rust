@@ -94,7 +94,7 @@ fn analyze_results_dir(dir: &Path, threads: usize, cutoff: f64, _depth: f64) -> 
         let run_dir = entry?.path();
         if let Some(num) = re
             .captures(&run_dir.file_name().unwrap_or_default().to_string_lossy())
-            .and_then(|caps| caps.get(0))
+            .and_then(|caps| caps.get(1))
             .and_then(|m| m.as_str().parse::<usize>().ok())
         {
             entries.push((num, run_dir));
