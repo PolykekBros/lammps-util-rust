@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use lammps_util_rust::DumpFile;
-use lammps_util_rust::get_cluster_counts;
+use lammps_util_rust::{DumpFile, clusterize_snapshot, get_cluster_counts};
 use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
@@ -23,7 +22,8 @@ struct Cli {
 
 fn get_ids_to_delete(dump_path: &Path) -> Result<Vec<usize>> {
     let dump = DumpFile::read(dump_path, &[])?;
-    let counts = get_cluster_counts(dump.get_snapshots()[0]);
+    let snapshot = clusterize_snapshot(dump.get_snapshots()[0], 3.0);
+    let counts = get_cluster_counts(&snapshot);
     let ids_to_delete = counts
         .into_iter()
         .filter(|(_, count)| *count < 1000)
