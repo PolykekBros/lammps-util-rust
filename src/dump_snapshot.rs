@@ -51,8 +51,7 @@ impl DumpSnapshot {
     where
         I: Iterator<Item = String>,
     {
-        let line = lines.next();
-        let sym_box = match line.and_then(|l| {
+        let sym_box = match lines.next().and_then(|l| {
             l.split_at_checked(HEADER_SYM_BOX.len())
                 .map(|(_, boundaries)| boundaries.to_string())
         }) {
@@ -89,7 +88,7 @@ impl DumpSnapshot {
         };
         let mut keys_map = HashMap::new();
         match lines.next().and_then(|l| {
-            l.split_at_checked(HEADER_SYM_BOX.len())
+            l.split_at_checked(HEADER_ATOMS.len())
                 .map(|(_, boundaries)| boundaries.to_string())
         }) {
             Some(tokens) => {
