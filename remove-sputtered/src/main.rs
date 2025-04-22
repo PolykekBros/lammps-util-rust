@@ -57,7 +57,9 @@ fn delete_atoms(in_file: &Path, out_file: &Path, ids: &[usize]) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    env_logger::init();
     let cli = Cli::parse();
+
     let ids_to_delete = get_ids_to_delete(&cli.dump_final)?;
     println!("about to delete {} atoms", ids_to_delete.len());
     delete_atoms(&cli.input_file, &cli.output_file, &ids_to_delete)?;

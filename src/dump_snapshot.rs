@@ -3,6 +3,7 @@ use std::fmt;
 use std::io;
 
 use itertools::izip;
+use log::debug;
 
 use crate::dump_file::DumpParsingError;
 use crate::XYZ;
@@ -51,6 +52,7 @@ impl DumpSnapshot {
     where
         I: Iterator<Item = String>,
     {
+        debug!("reading snapshot");
         let sym_box = match lines.next().and_then(|l| {
             l.split_at_checked(HEADER_SYM_BOX.len())
                 .map(|(_, boundaries)| boundaries.to_string())
@@ -86,6 +88,7 @@ impl DumpSnapshot {
             }
             _ => return Err(DumpParsingError::MissingSymBox),
         };
+        debug!("read symbox");
         let mut keys_map = HashMap::new();
         match lines.next().and_then(|l| {
             l.split_at_checked(HEADER_ATOMS.len())
