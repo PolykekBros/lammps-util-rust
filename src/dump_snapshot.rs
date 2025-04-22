@@ -47,19 +47,16 @@ impl DumpSnapshot {
         }
     }
 
-    pub fn read<'a, I>(
-        lines: &mut I,
-        step: u64,
-        atoms_count: usize,
-    ) -> Result<Self, DumpParsingError>
+    pub fn read<I>(lines: &mut I, step: u64, atoms_count: usize) -> Result<Self, DumpParsingError>
     where
-        I: Iterator<Item = &'a str>,
+        I: Iterator<Item = String>,
     {
-        let sym_box = match lines
-            .next()
-            .and_then(|l| l.split_at_checked(HEADER_SYM_BOX.len()))
-        {
-            Some((HEADER_SYM_BOX, boundaries)) => {
+        let line = lines.next();
+        let sym_box = match line.and_then(|l| {
+            l.split_at_checked(HEADER_SYM_BOX.len())
+                .map(|(_, boundaries)| boundaries.to_string())
+        }) {
+            Some(boundaries) => {
                 let borders: Vec<(f64, f64)> = (0..3)
                     .filter_map(|_| {
                         lines.next().map(|l| {
@@ -91,11 +88,11 @@ impl DumpSnapshot {
             _ => return Err(DumpParsingError::MissingSymBox),
         };
         let mut keys_map = HashMap::new();
-        match lines
-            .next()
-            .and_then(|l| l.split_at_checked(HEADER_ATOMS.len()))
-        {
-            Some((HEADER_ATOMS, tokens)) => {
+        match lines.next().and_then(|l| {
+            l.split_at_checked(HEADER_SYM_BOX.len())
+                .map(|(_, boundaries)| boundaries.to_string())
+        }) {
+            Some(tokens) => {
                 for token in tokens.split_whitespace() {
                     if keys_map.insert(token.to_string(), keys_map.len()).is_some() {
                         return Err(DumpParsingError::DuplicateAtomKeys);

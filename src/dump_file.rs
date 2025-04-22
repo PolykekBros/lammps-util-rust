@@ -1,7 +1,9 @@
-use std::collections::HashMap;
+use anyhow::{anyhow, Context, Result};
 use std::fs;
-use std::io;
+use std::fs::File;
+use std::io::{self, BufRead};
 use std::path::Path;
+use std::{collections::HashMap, io::BufReader};
 
 use crate::dump_snapshot::{DumpSnapshot, HEADER_NUM_OF_ATOMS, HEADER_TIMESTEP};
 
@@ -40,10 +42,12 @@ impl DumpFile {
         }
     }
 
-    pub fn read(path: &Path, timesteps: &[u64]) -> Result<Self, DumpParsingError> {
-        let lines = fs::read_to_string(path).map_err(DumpParsingError::IO)?;
-        let mut lines = lines.trim().split("\n");
-
+    pub fn read(path: &Path, timesteps: &[u64]) -> Result<Self> {
+        let mut lines = BufReader::new(
+            File::open(path).context(format!("Reading {}", path.to_string_lossy()))?,
+        )
+        .lines()
+        .map_while(Result::ok);
         let mut timesteps = timesteps.to_vec();
         timesteps.sort();
 
@@ -52,14 +56,21 @@ impl DumpFile {
         };
 
         loop {
-            let timestep = match (lines.next(), lines.next().map(str::parse::<u64>)) {
-                (Some(HEADER_TIMESTEP), Some(Ok(n))) => n,
+            let timestep = match (
+                lines.next().filter(|s| s == HEADER_TIMESTEP),
+                lines.next().map(|s| s.as_str().parse::<u64>()),
+            ) {
+                (Some(_), Some(Ok(n))) => n,
                 (None, _) => break Ok(dump),
-                (_, _) => break Err(DumpParsingError::InvalidOrMissingTimestep),
+                (_, _) => break Err(anyhow!(DumpParsingError::InvalidOrMissingTimestep)),
             };
-            let number_of_atoms = match (lines.next(), lines.next().map(str::parse::<usize>)) {
-                (Some(HEADER_NUM_OF_ATOMS), Some(Ok(n))) => n,
-                (_, _) => break Err(DumpParsingError::InvalidOrMissingNumberOfAtoms),
+            let number_of_atoms = match lines
+                .next()
+                .filter(|s| s == HEADER_NUM_OF_ATOMS)
+                .zip(lines.next().map(|s| s.as_str().parse::<usize>()))
+            {
+                Some((_, Ok(n))) => n,
+                _ => break Err(anyhow!(DumpParsingError::InvalidOrMissingNumberOfAtoms)),
             };
             if !timesteps.is_empty() {
                 if &timestep > timesteps.last().unwrap_or(&u64::MAX) {
@@ -74,7 +85,7 @@ impl DumpFile {
                 }
             }
             if dump.snapshots.contains_key(&timestep) {
-                break Err(DumpParsingError::DuplicateSnapshots);
+                break Err(anyhow!(DumpParsingError::DuplicateSnapshots));
             }
             let snapshot = DumpSnapshot::read(&mut lines, timestep, number_of_atoms)?;
             dump.snapshots.insert(snapshot.step, snapshot);

@@ -100,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => Vec::new(),
     };
     println!("start");
-    let dump = DumpFile::new(dump_path.as_path(), &timesteps)?;
+    let dump = DumpFile::read(dump_path.as_path(), &timesteps)?;
     println!("read: {:?}", dump.get_snapshots()[0]);
     let (plot_x, plot_y) = get_distribution(dump.get_snapshots()[0], cli.delta);
     println!("calculated distribution dump");
