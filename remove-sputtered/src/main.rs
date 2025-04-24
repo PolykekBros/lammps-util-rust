@@ -36,12 +36,13 @@ fn delete_atoms(in_file: &Path, out_file: &Path, ids: &[usize]) -> Result<()> {
     let reader = BufReader::new(File::open(in_file)?);
     let mut writer = BufWriter::new(File::create(out_file)?);
     for (cnt, line) in reader.lines().enumerate() {
+        let cnt = cnt + 1;
         let line = line?;
         let mut tokens = line.split(' ');
         let first_token = tokens.next().unwrap();
         if cnt == 3 {
             let atom_cnt = first_token.parse::<usize>()?;
-            let new_atom_cnt = ids.len() - atom_cnt;
+            let new_atom_cnt = atom_cnt - ids.len();
             writeln!(writer, "{} atoms", new_atom_cnt)?;
         } else if cnt < 17 || tokens.next().is_none() {
             writeln!(writer, "{}", line)?;
