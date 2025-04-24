@@ -24,10 +24,18 @@ fn get_ids_to_delete(dump_path: &Path) -> Result<Vec<usize>> {
     let dump = DumpFile::read(dump_path, &[])?;
     let snapshot = clusterize_snapshot(dump.get_snapshots()[0], 3.0);
     let counts = get_cluster_counts(&snapshot);
-    let ids_to_delete = counts
+    let clusters_to_delete = counts
         .into_iter()
         .filter(|(_, count)| *count < 1000)
         .map(|(id, _)| id)
+        .collect::<Vec<_>>();
+    let clusters = snapshot.get_property("cluster");
+    let ids = snapshot.get_property("id");
+    let ids_to_delete = ids
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| clusters_to_delete.contains(&(clusters[*i] as usize)))
+        .map(|(_, id)| *id as usize)
         .collect::<Vec<_>>();
     Ok(ids_to_delete)
 }
