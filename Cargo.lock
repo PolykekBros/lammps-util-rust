@@ -359,6 +359,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "detect-sputtered"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "lammps-util-rust",
+ "log",
+ "rayon",
+ "regex",
+]
+
+[[package]]
 name = "dirs"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

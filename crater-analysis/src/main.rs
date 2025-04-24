@@ -2,8 +2,7 @@ use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use lammps_util_rust::{crater_snapshot, DumpFile, DumpSnapshot};
 use log::debug;
-use rayon::prelude::*;
-use rayon::ThreadPoolBuilder;
+use rayon::{prelude::*, ThreadPoolBuilder};
 use regex::Regex;
 use std::{
     fs::read_dir,

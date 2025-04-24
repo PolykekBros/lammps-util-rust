@@ -15,7 +15,7 @@ itertools = { workspace=true }
 members = [
   "component-shift",
   "crater-analysis",
-  "density-distribution",
+  "density-distribution", "detect-sputtered",
   "remove-sputtered",
   "rim-analysis",
   "surface-analysis",
@@ -33,3 +33,4 @@ plotters = "0.3.7"
 log = "0.4.25"
 env_logger = "0.11.6"
 regex = "1.11.1"
+rayon = "1.10.0"
