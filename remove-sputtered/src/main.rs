@@ -41,7 +41,7 @@ fn delete_atoms(in_file: &Path, out_file: &Path, ids: &[usize]) -> Result<()> {
         let first_token = tokens.next().unwrap();
         if cnt == 3 {
             let atom_cnt = first_token.parse::<usize>()?;
-            let new_atom_cnt = atom_cnt - ids.len();
+            let new_atom_cnt = ids.len() - atom_cnt;
             writeln!(writer, "{} atoms", new_atom_cnt)?;
         } else if cnt < 17 || tokens.next().is_none() {
             writeln!(writer, "{}", line)?;
