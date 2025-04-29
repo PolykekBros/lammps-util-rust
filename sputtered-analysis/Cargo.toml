@@ -1,0 +1,13 @@
+[package]
+name = "sputtered-analysis"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lammps-util-rust = { path = "../"}
+log = { workspace=true }
+env_logger = { workspace=true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+rayon = { workspace = true }
+regex = { workspace = true }

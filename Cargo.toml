@@ -17,7 +17,7 @@ members = [
   "crater-analysis",
   "density-distribution", "detect-sputtered",
   "remove-sputtered",
-  "rim-analysis",
+  "rim-analysis", "sputtered-analysis",
   "surface-analysis",
   "zero-lvl"
 ]
