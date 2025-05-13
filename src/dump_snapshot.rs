@@ -24,6 +24,7 @@ pub struct SymBox {
     pub zhi: f64,
 }
 
+#[derive(Clone)]
 pub struct DumpSnapshot {
     pub step: u64,
     pub atoms_count: usize,
