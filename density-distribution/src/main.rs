@@ -1,4 +1,8 @@
 use clap::Parser;
+use geomutil::{
+    geomutil_triangulation::alpha_shape_2d,
+    geomutil_util::{points_bounding_box, Point2D},
+};
 use lammps_util_rust::{DumpFile, DumpSnapshot};
 use plotters::prelude::*;
 use std::collections::HashSet;
@@ -18,6 +22,48 @@ struct Cli {
 
     #[arg(short, long, value_name = "OUTPUT_DIR")]
     output_dir: PathBuf,
+}
+
+fn plot_slices(dump: &DumpSnapshot, delta: f64) {
+    let coords = dump.get_coordinates();
+    let z_min = 40.0;
+    let z_max = coords
+        .iter()
+        .map(|c| c.z)
+        .max_by(|a, b| a.total_cmp(b))
+        .unwrap();
+    let n = ((z_max - z_min) / delta).ceil() as usize;
+    let mut slices = vec![Vec::new(); n];
+    for c in coords {
+        if c.z < z_min {
+            continue;
+        }
+        let i = ((c.z - z_min) / delta).floor() as usize;
+        slices[i].push(Point2D::new(c.x as f32, c.y as f32));
+    }
+    for (i, points) in slices.into_iter().enumerate() {
+        let file_name = format!("triangles_{}.png", i);
+        let root = BitMapBackend::new(&file_name, (800, 600)).into_drawing_area();
+        root.fill(&WHITE).unwrap();
+        let (low_boundary, up_boundary) = points_bounding_box(&points).unwrap();
+        let mut chart = ChartBuilder::on(&root)
+            .margin(10)
+            .build_cartesian_2d(
+                low_boundary.x - 1.0..up_boundary.x + 1.0,
+                low_boundary.y - 1.0..up_boundary.y + 1.0,
+            )
+            .unwrap();
+        chart.configure_mesh().draw().unwrap();
+
+        let shapes = alpha_shape_2d(&points, 1.0).unwrap();
+        for t in shapes.into_iter().map(|s| s.triangles).flatten() {
+            let line_series = LineSeries::new(
+                vec![t.a.xy(), t.b.xy(), t.c.xy(), t.a.xy()],
+                BLACK.stroke_width(1),
+            );
+            chart.draw_series(line_series).unwrap();
+        }
+    }
 }
 
 fn get_distribution(dump: &DumpSnapshot, delta: f64) -> (Vec<f64>, Vec<Vec<f64>>) {
@@ -99,11 +145,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(timestep) => vec![timestep],
         _ => Vec::new(),
     };
-    println!("start");
     let dump = DumpFile::read(dump_path.as_path(), &timesteps)?;
-    println!("read: {:?}", dump.get_snapshots()[0]);
-    let (plot_x, plot_y) = get_distribution(dump.get_snapshots()[0], cli.delta);
-    println!("calculated distribution dump");
-    plot_distribution(&cli.output_dir, &plot_x, &plot_y)?;
+    let snapshot = dump.get_snapshots()[0];
+    plot_slices(&snapshot, cli.delta);
+    // let (plot_x, plot_y) = get_distribution(dump.get_snapshots()[0], cli.delta);
+    // println!("calculated distribution dump");
+    // plot_distribution(&cli.output_dir, &plot_x, &plot_y)?;
     Ok(())
 }
