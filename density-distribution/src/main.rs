@@ -1,11 +1,11 @@
 use clap::Parser;
 use geomutil::{
     geomutil_triangulation::alpha_shape_2d,
-    geomutil_util::{points_bounding_box, Point2D},
+    geomutil_util::{points_bounding_box, Point2D, Shape2D},
 };
 use lammps_util_rust::{DumpFile, DumpSnapshot};
 use plotters::prelude::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -20,32 +20,91 @@ struct Cli {
     #[arg(short, long, value_name = "DELTA", default_value_t = 5.43 * 2.0)]
     delta: f64,
 
+    /// Save slice pictures
+    #[arg(short, long)]
+    pictures: bool,
+
     #[arg(short, long, value_name = "OUTPUT_DIR")]
     output_dir: PathBuf,
 }
 
-fn plot_slices(dump: &DumpSnapshot, delta: f64) {
+#[derive(Default, Clone)]
+struct Particle {
+    xy: Point2D,
+    id: usize,
+    ptype: usize,
+}
+
+impl Particle {
+    fn new(xy: Point2D, id: usize, ptype: usize) -> Self {
+        Self { xy, id, ptype }
+    }
+}
+
+#[derive(Default, Clone)]
+struct Slice {
+    particles: Vec<Particle>,
+    z_min: f64,
+    z_max: f64,
+    shapes: Vec<Shape2D>,
+}
+
+impl Slice {
+    fn bounding_box(&self) -> (Point2D, Point2D) {
+        let points = self.points();
+        points_bounding_box(&points).unwrap()
+    }
+
+    fn points(&self) -> Vec<Point2D> {
+        self.particles.iter().map(|p| p.xy).collect()
+    }
+}
+
+fn get_slices(dump: &DumpSnapshot, delta: f64) -> Vec<Slice> {
     let coords = dump.get_coordinates();
-    let z_min = 40.0;
+    let types = dump.get_property("type");
+    let z_min = coords
+        .iter()
+        .map(|c| c.z)
+        .min_by(|a, b| a.total_cmp(b))
+        .unwrap();
     let z_max = coords
         .iter()
         .map(|c| c.z)
         .max_by(|a, b| a.total_cmp(b))
         .unwrap();
     let n = ((z_max - z_min) / delta).ceil() as usize;
-    let mut slices = vec![Vec::new(); n];
+    let mut slices = vec![Slice::default(); n];
     for c in coords {
         if c.z < z_min {
             continue;
         }
         let i = ((c.z - z_min) / delta).floor() as usize;
-        slices[i].push(Point2D::new(c.x as f32, c.y as f32));
+        if slices[i].particles.len() == 0 {
+            slices[i].z_min = z_min + (i as f64) * delta;
+            slices[i].z_max = slices[i].z_min + delta;
+        }
+        slices[i].particles.push(Particle::new(
+            Point2D::new(c.x as f32, c.y as f32),
+            c.index(),
+            types[c.index()] as usize,
+        ));
     }
-    for (i, points) in slices.into_iter().enumerate() {
-        let file_name = format!("triangles_{}.png", i);
-        let root = BitMapBackend::new(&file_name, (800, 600)).into_drawing_area();
+    for slice in slices.iter_mut() {
+        let points = &slice.points();
+        println!("before shape, points.len: {}", points.len());
+        slice.shapes = alpha_shape_2d(&slice.points(), 0.5).unwrap();
+        println!("after shape");
+    }
+    slices
+}
+
+fn plot_slices(out_dir: &Path, slices: &[Slice]) {
+    for (i, slice) in slices.iter().enumerate() {
+        let path = out_dir.join(format!("slice_{}.png", i));
+        let root = BitMapBackend::new(&path, (800, 800)).into_drawing_area();
         root.fill(&WHITE).unwrap();
-        let (low_boundary, up_boundary) = points_bounding_box(&points).unwrap();
+        let (low_boundary, up_boundary) = slice.bounding_box();
         let mut chart = ChartBuilder::on(&root)
             .margin(10)
             .build_cartesian_2d(
@@ -54,11 +113,7 @@ fn plot_slices(dump: &DumpSnapshot, delta: f64) {
             )
             .unwrap();
         chart.configure_mesh().draw().unwrap();
-
-        println!("before shape, points.len: {}", points.len());
-        let shapes = alpha_shape_2d(&points, 1.0).unwrap();
-        println!("after shape");
-        for t in shapes.into_iter().map(|s| s.triangles).flatten() {
+        for t in slice.shapes.iter().map(|s| &s.triangles).flatten() {
             let line_series = LineSeries::new(
                 vec![t.a.xy(), t.b.xy(), t.c.xy(), t.a.xy()],
                 BLACK.stroke_width(1),
@@ -68,46 +123,40 @@ fn plot_slices(dump: &DumpSnapshot, delta: f64) {
     }
 }
 
-fn get_distribution(dump: &DumpSnapshot, delta: f64) -> (Vec<f64>, Vec<Vec<f64>>) {
-    let atom_type = dump.get_property("type");
-    let atom_x = dump.get_property("x");
-    let atom_y = dump.get_property("y");
-    let atom_z = dump.get_property("z");
-    let types = atom_type
+fn distribution_data(slices: &[Slice], delta: f64) -> (Vec<f64>, Vec<Vec<f64>>) {
+    let x = slices
         .iter()
-        .copied()
-        .map(|t| t as usize)
-        .collect::<HashSet<_>>();
-    let x_min = atom_x.iter().copied().fold(f64::INFINITY, f64::min);
-    let x_max = atom_x.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let y_min = atom_y.iter().copied().fold(f64::INFINITY, f64::min);
-    let y_max = atom_y.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let z_min = atom_z.iter().copied().fold(f64::INFINITY, f64::min);
-    let z_max = atom_z.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    println!("{x_min}, {x_max} | {y_min}, {y_max} | {z_min}, {z_max}");
-    let volume = delta * (y_max - y_min) * (x_max - x_min);
-    let count = ((z_max - z_min) / delta).ceil() as usize;
-    let plot_x = (0..count)
-        .map(|i| (i as f64) * delta + delta / 2.0f64)
+        .map(|s| (s.z_max + s.z_min) as f64 / 2.0)
         .collect();
-    let plot_y = types
-        .into_iter()
-        .map(|t| {
-            (0..count)
-                .map(|i| i as f64)
-                .map(|i| (i * delta, (i + 1.0f64) * delta))
-                .map(|(start, end)| {
-                    atom_type
-                        .iter()
-                        .zip(atom_z)
-                        .filter(|(&a_t, &a_z)| (a_z >= start && a_z < end) && (a_t as usize) == t)
-                        .count() as f64
-                        / volume
-                })
-                .collect()
+    let mut types = HashSet::new();
+    for s in slices.iter() {
+        for p in s.particles.iter() {
+            types.insert(p.ptype);
+        }
+    }
+    let y = slices
+        .iter()
+        .map(|s| {
+            let volume = s.shapes.iter().map(|s| s.area()).sum::<f32>() as f64;
+            let mut counts = HashMap::new();
+            for t in types.iter() {
+                counts.insert(*t, 0.0);
+            }
+            for p in s.particles.iter() {
+                counts.entry(p.ptype).and_modify(|c| *c += 1.0);
+            }
+            println!("counts: {}", counts.keys().len());
+            for t in types.iter() {
+                counts.entry(*t).and_modify(|c| *c /= volume * delta);
+            }
+            counts
         })
-        .collect();
-    (plot_x, plot_y)
+        .collect::<Vec<HashMap<usize, f64>>>();
+    let mut y_transposed = Vec::with_capacity(types.len());
+    for t in types.iter() {
+        y_transposed.push(y.iter().map(|v| v[t]).collect());
+    }
+    (x, y_transposed)
 }
 
 fn plot_distribution(
@@ -130,13 +179,24 @@ fn plot_distribution(
         )?;
     chart
         .configure_mesh()
+        .y_desc("n / volume")
+        .x_desc("z coordinate (A)")
         .x_max_light_lines(0)
         .y_max_light_lines(0)
         .draw()?;
-    chart.draw_series(LineSeries::new(
-        std::iter::zip(plot_x.to_owned(), plot_y[0].to_owned()),
-        &RED,
-    ))?;
+    println!("lines: {}", plot_y.len());
+    chart
+        .draw_series(LineSeries::new(
+            std::iter::zip(plot_x.to_owned(), plot_y[0].to_owned()),
+            &RED,
+        ))?
+        .label("Si");
+    chart
+        .draw_series(LineSeries::new(
+            std::iter::zip(plot_x.to_owned(), plot_y[1].to_owned()),
+            &BLUE,
+        ))?
+        .label("C");
     Ok(())
 }
 
@@ -149,9 +209,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let dump = DumpFile::read(dump_path.as_path(), &timesteps)?;
     let snapshot = dump.get_snapshots()[0];
-    plot_slices(&snapshot, cli.delta);
-    // let (plot_x, plot_y) = get_distribution(dump.get_snapshots()[0], cli.delta);
-    // println!("calculated distribution dump");
-    // plot_distribution(&cli.output_dir, &plot_x, &plot_y)?;
+    let slices = get_slices(snapshot, cli.delta);
+    if cli.pictures {
+        plot_slices(&cli.output_dir, &slices);
+    }
+    let (plot_x, plot_y) = distribution_data(&slices, cli.delta);
+    plot_distribution(&cli.output_dir, &plot_x, &plot_y)?;
     Ok(())
 }
