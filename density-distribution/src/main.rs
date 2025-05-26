@@ -217,5 +217,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let (plot_x, plot_y) = distribution_data(&slices, cli.delta);
     plot_distribution(&cli.output_dir, &plot_x, &plot_y)?;
+    for i in 0..plot_x.len() {
+        print!("{}", plot_x[i]);
+        print!("\t{}", plot_y[0][i]);
+        println!("\t{}", plot_y[1][i]);
+    }
     Ok(())
 }
