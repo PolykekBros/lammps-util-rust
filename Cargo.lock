@@ -366,8 +366,10 @@ name = "density-distribution"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "env_logger",
  "geomutil",
  "lammps-util-rust",
+ "log",
  "plotters",
 ]
 

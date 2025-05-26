@@ -4,6 +4,7 @@ use geomutil::{
     geomutil_util::{points_bounding_box, Point2D, Shape2D},
 };
 use lammps_util_rust::{DumpFile, DumpSnapshot};
+use log::info;
 use plotters::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -31,13 +32,13 @@ struct Cli {
 #[derive(Default, Clone)]
 struct Particle {
     xy: Point2D,
-    id: usize,
+    _id: usize,
     ptype: usize,
 }
 
 impl Particle {
     fn new(xy: Point2D, id: usize, ptype: usize) -> Self {
-        Self { xy, id, ptype }
+        Self { xy, _id: id, ptype }
     }
 }
 
@@ -92,9 +93,9 @@ fn get_slices(dump: &DumpSnapshot, delta: f64) -> Vec<Slice> {
     }
     for slice in slices.iter_mut() {
         let points = &slice.points();
-        println!("before shape, points.len: {}", points.len());
+        info!("before shape, points.len: {}", points.len());
         slice.shapes = alpha_shape_2d(&slice.points(), 0.5).unwrap();
-        println!("after shape");
+        info!("after shape");
     }
     slices
 }
@@ -137,17 +138,18 @@ fn distribution_data(slices: &[Slice], delta: f64) -> (Vec<f64>, Vec<Vec<f64>>) 
     let y = slices
         .iter()
         .map(|s| {
-            let volume = s.shapes.iter().map(|s| s.area()).sum::<f32>() as f64;
+            let volume = s.shapes.iter().map(|s| s.area()).sum::<f32>() as f64 * delta;
             let mut counts = HashMap::new();
+            info!("volume: {}", volume);
             for t in types.iter() {
                 counts.insert(*t, 0.0);
             }
             for p in s.particles.iter() {
                 counts.entry(p.ptype).and_modify(|c| *c += 1.0);
             }
-            println!("counts: {}", counts.keys().len());
+            info!("counts: {counts:?}");
             for t in types.iter() {
-                counts.entry(*t).and_modify(|c| *c /= volume * delta);
+                counts.entry(*t).and_modify(|c| *c /= volume);
             }
             counts
         })
@@ -184,7 +186,6 @@ fn plot_distribution(
         .x_max_light_lines(0)
         .y_max_light_lines(0)
         .draw()?;
-    println!("lines: {}", plot_y.len());
     chart
         .draw_series(LineSeries::new(
             std::iter::zip(plot_x.to_owned(), plot_y[0].to_owned()),
@@ -201,6 +202,7 @@ fn plot_distribution(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
     let cli = Cli::parse();
     let dump_path = cli.dump_file;
     let timesteps = match cli.timestep {
