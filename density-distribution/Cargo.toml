@@ -7,4 +7,4 @@ edition = "2021"
 lammps-util-rust = { path = "../"}
 clap = { workspace = true }
 plotters = { workspace = true }
-geomutil = "0.1.1"
+geomutil = { path = "/home/denis/Desktop/src/geomutil-rust" }

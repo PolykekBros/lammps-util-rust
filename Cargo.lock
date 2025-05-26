@@ -545,9 +545,7 @@ dependencies = [
 
 [[package]]
 name = "geomutil"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b173351b824e4970df2a9e89adc3fa8fce58950cc4d27a4f5ddccf98a033bde1"
+version = "0.1.2"
 dependencies = [
  "geomutil_triangulation",
  "geomutil_util",
@@ -557,18 +555,14 @@ dependencies = [
 
 [[package]]
 name = "geomutil_triangulation"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ab60c7760f92377138e004382450c1ddfc7ffb088e57a2b24d7198e03fdcead"
+version = "0.1.1"
 dependencies = [
  "geomutil_util",
 ]
 
 [[package]]
 name = "geomutil_util"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fb72bea8d7f39cac8b4db3595a0d7e7ca8ddeef8e8724f3314b1592fbd9a390"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",

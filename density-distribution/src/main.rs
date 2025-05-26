@@ -55,7 +55,9 @@ fn plot_slices(dump: &DumpSnapshot, delta: f64) {
             .unwrap();
         chart.configure_mesh().draw().unwrap();
 
+        println!("before shape, points.len: {}", points.len());
         let shapes = alpha_shape_2d(&points, 1.0).unwrap();
+        println!("after shape");
         for t in shapes.into_iter().map(|s| s.triangles).flatten() {
             let line_series = LineSeries::new(
                 vec![t.a.xy(), t.b.xy(), t.c.xy(), t.a.xy()],
@@ -143,7 +145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dump_path = cli.dump_file;
     let timesteps = match cli.timestep {
         Some(timestep) => vec![timestep],
-        _ => Vec::new(),
+        _ => vec![],
     };
     let dump = DumpFile::read(dump_path.as_path(), &timesteps)?;
     let snapshot = dump.get_snapshots()[0];
