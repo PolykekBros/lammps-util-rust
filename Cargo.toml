@@ -10,9 +10,10 @@ kd-tree = { workspace=true }
 anyhow = { workspace=true }
 nalgebra = { workspace=true }
 itertools = { workspace=true }
+regex = { workspace=true }
 
 [workspace]
-members = [ "carbon-structure-analysis",
+members = [ "blob_5", "carbon-structure-analysis",
   "component-shift",
   "crater-analysis",
   "density-distribution", "detect-sputtered",

@@ -3,7 +3,13 @@ mod dump_file;
 mod dump_snapshot;
 mod xyz;
 
+use anyhow::Result;
 use log::debug;
+use regex::Regex;
+use std::{
+    fs::read_dir,
+    path::{Path, PathBuf},
+};
 
 pub use clusterizer::{clusterize_snapshot, get_cluster_counts, get_max_cluster_id};
 pub use dump_file::DumpFile;
@@ -12,6 +18,35 @@ pub use dump_snapshot::{
     copy_snapshot_with_keys, DumpSnapshot, SymBox,
 };
 pub use xyz::{check_cutoff, XYZ};
+
+pub struct RunDir {
+    pub path: PathBuf,
+    pub num: usize,
+}
+
+impl RunDir {
+    fn new(path: PathBuf, num: usize) -> Self {
+        Self { path, num }
+    }
+}
+
+pub fn get_runs_dirs(results_dir: &Path) -> Result<Vec<RunDir>> {
+    let re = Regex::new(r"^run_(\d+)$")?;
+    let paths = read_dir(results_dir)?.collect::<Result<Vec<_>, _>>()?;
+    let dirs = paths
+        .into_iter()
+        .map(|e| e.path())
+        .filter_map(|p| {
+            p.file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|s| re.captures(s))
+                .and_then(|caps| caps.get(1))
+                .and_then(|m| m.as_str().parse::<usize>().ok())
+                .map(|n| RunDir::new(p, n))
+        })
+        .collect();
+    Ok(dirs)
+}
 
 pub fn range_f64(begin: f64, end: f64, count: usize) -> Vec<f64> {
     assert!(begin <= end);
