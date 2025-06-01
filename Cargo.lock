@@ -130,7 +130,6 @@ dependencies = [
  "lammps-util-rust",
  "log",
  "rayon",
- "regex",
 ]
 
 [[package]]
@@ -328,7 +327,6 @@ dependencies = [
  "lammps-util-rust",
  "log",
  "rayon",
- "regex",
 ]
 
 [[package]]
@@ -396,7 +394,6 @@ dependencies = [
  "lammps-util-rust",
  "log",
  "rayon",
- "regex",
 ]
 
 [[package]]
@@ -710,7 +707,6 @@ dependencies = [
  "kd-tree",
  "log",
  "nalgebra",
- "regex",
  "typenum",
 ]
 
@@ -1127,7 +1123,6 @@ dependencies = [
  "lammps-util-rust",
  "log",
  "nalgebra",
- "regex",
 ]
 
 [[package]]
@@ -1242,7 +1237,6 @@ dependencies = [
  "lammps-util-rust",
  "log",
  "rayon",
- "regex",
 ]
 
 [[package]]

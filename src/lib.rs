@@ -1,11 +1,11 @@
 mod clusterizer;
 mod dump_file;
 mod dump_snapshot;
+mod math;
 mod xyz;
 
 use anyhow::Result;
 use log::debug;
-use regex::Regex;
 use std::{
     fs::read_dir,
     path::{Path, PathBuf},
@@ -17,6 +17,7 @@ pub use dump_snapshot::{
     copy_snapshot, copy_snapshot_with_indices, copy_snapshot_with_indices_with_keys,
     copy_snapshot_with_keys, DumpSnapshot, SymBox,
 };
+pub use math::{get_avg, get_avg_with_std, get_std, range_f64};
 pub use xyz::{check_cutoff, XYZ};
 
 pub struct RunDir {
@@ -31,27 +32,17 @@ impl RunDir {
 }
 
 pub fn get_runs_dirs(results_dir: &Path) -> Result<Vec<RunDir>> {
-    let re = Regex::new(r"^run_(\d+)$")?;
-    let paths = read_dir(results_dir)?.collect::<Result<Vec<_>, _>>()?;
-    let dirs = paths
-        .into_iter()
-        .map(|e| e.path())
-        .filter_map(|p| {
-            p.file_name()
-                .and_then(|name| name.to_str())
-                .and_then(|s| re.captures(s))
-                .and_then(|caps| caps.get(1))
-                .and_then(|m| m.as_str().parse::<usize>().ok())
-                .map(|n| RunDir::new(p, n))
-        })
-        .collect();
-    Ok(dirs)
-}
-
-pub fn range_f64(begin: f64, end: f64, count: usize) -> Vec<f64> {
-    assert!(begin <= end);
-    let step = (end - begin) / 1.max(count - 1) as f64;
-    (0..count).map(|n| begin + n as f64 * step).collect()
+    let mut runs = vec![];
+    for e in read_dir(results_dir)? {
+        let path = e?.path();
+        if let Some(n) = path
+            .file_name()
+            .and_then(|name| name.to_str()?.strip_prefix("run_")?.parse::<usize>().ok())
+        {
+            runs.push(RunDir::new(path, n));
+        }
+    }
+    Ok(runs)
 }
 
 fn crater_candidates_snapshot(

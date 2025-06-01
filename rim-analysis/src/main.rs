@@ -1,14 +1,14 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use lammps_util_rust::{
-    clusterize_snapshot, copy_snapshot_with_indices, get_cluster_counts, DumpFile, DumpSnapshot,
+    clusterize_snapshot, copy_snapshot_with_indices, get_avg_with_std, get_cluster_counts,
+    get_runs_dirs, DumpFile, DumpSnapshot,
 };
 use log::info;
 use nalgebra::{vector, Vector2};
-use regex::Regex;
 use std::{
     collections::HashSet,
-    fs::{read_dir, File},
+    fs::File,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     str::FromStr,
@@ -18,6 +18,7 @@ const RIM_THRESHOLD: usize = 10;
 const CLUSTER_TRAJECTORY_LINE: usize = 38;
 const ANGLE_ROTATION: usize = 10;
 const DATA_LEN: usize = 360 / ANGLE_ROTATION;
+type Data = [Vec<f64>; DATA_LEN];
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -110,7 +111,7 @@ fn rim_atom_rotation(v: Vector2<f64>) -> f64 {
     }
 }
 
-fn get_angle_distribution(snap: &DumpSnapshot, center: Vector2<f64>) -> [Vec<f64>; DATA_LEN] {
+fn get_angle_distribution(snap: &DumpSnapshot, center: Vector2<f64>) -> Data {
     let mut radii = [const { Vec::new() }; DATA_LEN];
     for coord in snap
         .get_coordinates()
@@ -125,33 +126,23 @@ fn get_angle_distribution(snap: &DumpSnapshot, center: Vector2<f64>) -> [Vec<f64
     radii
 }
 
-fn get_mean(values: &[f64]) -> f64 {
-    values.iter().sum::<f64>() / values.len() as f64
-}
-
-fn get_std(values: &[f64]) -> f64 {
-    let mean = get_mean(values);
-    let std = values.iter().map(|r| (r - mean) * (r - mean)).sum::<f64>() / values.len() as f64;
-    std.sqrt()
-}
-
 fn get_data(radii: [Vec<f64>; DATA_LEN]) -> [[f64; 5]; DATA_LEN] {
     let mut data = [const { [0.0; 5] }; DATA_LEN];
     for (i, values) in radii.iter().enumerate() {
-        let mean = get_mean(values);
+        let (avg, std) = get_avg_with_std(values).unwrap();
         let cnt = values.len() as f64;
         data[i] = [
             (i * ANGLE_ROTATION + ANGLE_ROTATION / 2) as f64,
             cnt,
-            mean,
-            cnt * mean,
-            get_std(values),
+            avg,
+            cnt * avg,
+            std,
         ]
     }
     data
 }
 
-fn parse_run_dir(dir: &Path, cutoff: f64) -> Result<[Vec<f64>; DATA_LEN]> {
+fn parse_run_dir(dir: &Path, cutoff: f64) -> Result<Data> {
     let dump_input = DumpFile::read(&dir.join("dump.initial"), &[])?;
     let snap_input = dump_input.get_snapshots()[0];
     let dump_final = DumpFile::read(&dir.join("dump.final_no_cluster"), &[])?;
@@ -167,26 +158,27 @@ fn parse_run_dir(dir: &Path, cutoff: f64) -> Result<[Vec<f64>; DATA_LEN]> {
     Ok(radii)
 }
 
+fn run_single(dir: &Path, cutoff: f64) -> Result<Data> {
+    parse_run_dir(dir, cutoff)
+}
+
+fn run_all(results_dir: &Path, cutoff: f64) -> Result<Data> {
+    let mut radii = [const { Vec::new() }; DATA_LEN];
+    for run_dir in get_runs_dirs(results_dir)? {
+        for (i, r) in parse_run_dir(&run_dir.path, cutoff)?.iter().enumerate() {
+            radii[i].extend(r);
+        }
+    }
+    Ok(radii)
+}
+
 fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
     let radii = match cli.command {
-        Commands::Single { dir } => parse_run_dir(&dir, cli.cutoff)?,
-        Commands::All { dir } => {
-            let re = Regex::new(r"^run_\d+$")?;
-            let mut radii = [const { Vec::new() }; DATA_LEN];
-            for entry in read_dir(&dir)? {
-                let run_dir = entry?.path();
-                if !re.is_match(&run_dir.file_name().unwrap_or_default().to_string_lossy()) {
-                    continue;
-                }
-                for (i, r) in parse_run_dir(&run_dir, cli.cutoff)?.iter().enumerate() {
-                    radii[i].extend(r);
-                }
-            }
-            radii
-        }
-    };
+        Commands::Single { dir } => run_single(&dir, cli.cutoff),
+        Commands::All { dir } => run_all(&dir, cli.cutoff),
+    }?;
     let data = get_data(radii);
     info!("data: {data:?}");
     for row in data {

@@ -81,7 +81,7 @@ fn get_slices(dump: &DumpSnapshot, delta: f64) -> Vec<Slice> {
             continue;
         }
         let i = ((c.z - z_min) / delta).floor() as usize;
-        if slices[i].particles.len() == 0 {
+        if slices[i].particles.is_empty() {
             slices[i].z_min = z_min + (i as f64) * delta;
             slices[i].z_max = slices[i].z_min + delta;
         }
@@ -114,7 +114,7 @@ fn plot_slices(out_dir: &Path, slices: &[Slice]) {
             )
             .unwrap();
         chart.configure_mesh().draw().unwrap();
-        for t in slice.shapes.iter().map(|s| &s.triangles).flatten() {
+        for t in slice.shapes.iter().flat_map(|s| &s.triangles) {
             let line_series = LineSeries::new(
                 vec![t.a.xy(), t.b.xy(), t.c.xy(), t.a.xy()],
                 BLACK.stroke_width(1),
@@ -125,10 +125,7 @@ fn plot_slices(out_dir: &Path, slices: &[Slice]) {
 }
 
 fn distribution_data(slices: &[Slice], delta: f64) -> (Vec<f64>, Vec<Vec<f64>>) {
-    let x = slices
-        .iter()
-        .map(|s| (s.z_max + s.z_min) as f64 / 2.0)
-        .collect();
+    let x = slices.iter().map(|s| (s.z_max + s.z_min) / 2.0).collect();
     let mut types = HashSet::new();
     for s in slices.iter() {
         for p in s.particles.iter() {
@@ -164,7 +161,7 @@ fn distribution_data(slices: &[Slice], delta: f64) -> (Vec<f64>, Vec<Vec<f64>>) 
 fn plot_distribution(
     dir: &Path,
     plot_x: &Vec<f64>,
-    plot_y: &Vec<Vec<f64>>,
+    plot_y: &[Vec<f64>],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let plot_path = dir.join("distribution.png");
     let root = BitMapBackend::new(&plot_path, (640, 480)).into_drawing_area();
@@ -217,8 +214,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let (plot_x, plot_y) = distribution_data(&slices, cli.delta);
     plot_distribution(&cli.output_dir, &plot_x, &plot_y)?;
-    for i in 0..plot_x.len() {
-        print!("{}", plot_x[i]);
+    for (i, x) in plot_x.iter().enumerate() {
+        print!("{}", x);
         print!("\t{}", plot_y[0][i]);
         println!("\t{}", plot_y[1][i]);
     }

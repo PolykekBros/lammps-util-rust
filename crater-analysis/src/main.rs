@@ -1,13 +1,9 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
-use lammps_util_rust::{crater_snapshot, DumpFile, DumpSnapshot};
+use lammps_util_rust::{crater_snapshot, get_runs_dirs, DumpFile, DumpSnapshot, RunDir};
 use log::debug;
 use rayon::{prelude::*, ThreadPoolBuilder};
-use regex::Regex;
-use std::{
-    fs::read_dir,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -67,7 +63,7 @@ fn get_crater_info(snapshot: &DumpSnapshot, zero_lvl: f64) -> String {
     format!("{crater_count} {volume} {surface} {z_avg} {z_min}")
 }
 
-fn analyze_single_dir(dir: &Path, cutoff: f64, _depth: f64) -> Result<String> {
+fn analyze_single_run(dir: &Path, cutoff: f64, _depth: f64) -> Result<String> {
     let dump_input = DumpFile::read(&dir.join("dump.initial"), &[])?;
     let snapshot_input = dump_input.get_snapshots()[0];
     let zero_lvl = snapshot_input.get_zero_lvl();
@@ -85,24 +81,18 @@ fn analyze_single_dir(dir: &Path, cutoff: f64, _depth: f64) -> Result<String> {
     Ok(info)
 }
 
+fn do_run_dir(run_dir: &RunDir, cutoff: f64, _depth: f64) -> Result<(usize, String)> {
+    let info = analyze_single_run(&run_dir.path, cutoff, _depth)?;
+    Ok((run_dir.num, info))
+}
+
 fn analyze_results_dir(dir: &Path, threads: usize, cutoff: f64, _depth: f64) -> Result<String> {
     let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
-    let re = Regex::new(r"^run_(\d+)$")?;
-    let mut entries = Vec::new();
-    for entry in read_dir(dir)? {
-        let run_dir = entry?.path();
-        if let Some(num) = re
-            .captures(&run_dir.file_name().unwrap_or_default().to_string_lossy())
-            .and_then(|caps| caps.get(1))
-            .and_then(|m| m.as_str().parse::<usize>().ok())
-        {
-            entries.push((num, run_dir));
-        };
-    }
+    let run_dirs = get_runs_dirs(dir)?;
     let mut results = tp.install(|| {
-        entries
+        run_dirs
             .into_par_iter()
-            .map(|(num, dir)| analyze_single_dir(&dir, cutoff, _depth).map(|info| (num, info)))
+            .map(|run_dir| do_run_dir(&run_dir, cutoff, _depth))
             .collect::<Result<Vec<_>>>()
     })?;
     results.sort_by(|a, b| a.0.cmp(&b.0));
@@ -119,7 +109,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let info = match &cli.command {
-        Commands::Single(args) => analyze_single_dir(&args.run_dir, cli.cutoff, cli.max_depth)?,
+        Commands::Single(args) => analyze_single_run(&args.run_dir, cli.cutoff, cli.max_depth)?,
         Commands::Multi(args) => {
             analyze_results_dir(&args.results_dir, args.threads, cli.cutoff, cli.max_depth)?
         }

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use lammps_util_rust::{DumpFile, DumpSnapshot, XYZ};
-use log::{debug, info};
+use log::info;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -34,12 +34,6 @@ fn get_carbon_atoms(snapshot: &DumpSnapshot, type_id: usize) -> Vec<XYZ> {
         .filter(|xyz| (types[xyz.index()] as usize).eq(&type_id))
         .copied()
         .collect()
-}
-
-#[derive(Debug, Clone)]
-struct Neighbours {
-    atom: XYZ,
-    neighbours: Vec<XYZ>,
 }
 
 struct RingsFinder {

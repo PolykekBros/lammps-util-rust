@@ -31,7 +31,7 @@ fn get_coords_shift(a: &[XYZ], b: &[XYZ]) -> (usize, Vector3<f64>, Vector3<f64>)
 }
 
 fn get_ids(input_snapshot: &DumpSnapshot, final_snapshot: &DumpSnapshot) -> Vec<f64> {
-    let crater_snapshot = crater_snapshot(input_snapshot, final_snapshot, 3.0);
+    let crater_snapshot = crater_snapshot(input_snapshot, final_snapshot, 1.75, 3.0);
     let final_ids = final_snapshot.get_property("id");
     let crater_ids = crater_snapshot.get_property("id");
     let ids = crater_ids

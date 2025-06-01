@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use clap::Parser;
-use lammps_util_rust::{DumpFile, RunDir, get_runs_dirs};
+use lammps_util_rust::{DumpFile, RunDir, get_avg_with_std, get_runs_dirs};
 use rayon::{ThreadPoolBuilder, prelude::*};
 use std::path::{Path, PathBuf};
 
@@ -146,20 +146,6 @@ fn data_transpose(data: &[Vec<f64>]) -> Result<Vec<Vec<f64>>> {
     Ok((0..m)
         .map(|i| data.iter().map(|inner| inner[i]).collect())
         .collect())
-}
-
-fn get_avg_with_std(data: &[f64]) -> Option<(f64, f64)> {
-    match data.len() {
-        0 => None,
-        1 => Some((data[0], 0.0)),
-        2.. => {
-            let n = data.len() as f64;
-            let avg = data.iter().sum::<f64>() / n;
-            let std =
-                (data.iter().copied().map(|x| (x - avg).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
-            Some((avg, std))
-        }
-    }
 }
 
 fn parse_data(data: &[Vec<f64>]) -> Result<Vec<(f64, f64)>> {

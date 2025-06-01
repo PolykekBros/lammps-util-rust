@@ -10,5 +10,4 @@ env_logger = { workspace=true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 nalgebra = { workspace = true }
-regex = { workspace = true}
 assert_float_eq = "1.1.4"

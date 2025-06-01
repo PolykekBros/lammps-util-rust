@@ -1,14 +1,10 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use lammps_util_rust::{
-    DumpFile, clusterize_snapshot, copy_snapshot_with_indices, get_cluster_counts,
+    DumpFile, clusterize_snapshot, copy_snapshot_with_indices, get_cluster_counts, get_runs_dirs,
 };
 use rayon::{ThreadPoolBuilder, prelude::*};
-use regex::Regex;
-use std::{
-    fs::read_dir,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -77,18 +73,11 @@ fn do_run_dir(run_dir: &Path) -> Result<()> {
 
 fn do_results_dir(results_dir: &Path, threads: usize) -> Result<()> {
     let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
-    let re = Regex::new(r"^run_(\d+)$")?;
-    let mut entries = Vec::new();
-    for entry in read_dir(results_dir)? {
-        let run_dir = entry?.path();
-        if re.is_match(&run_dir.file_name().unwrap_or_default().to_string_lossy()) {
-            entries.push(run_dir);
-        }
-    }
+    let run_dirs = get_runs_dirs(results_dir)?;
     tp.install(|| {
-        entries
+        run_dirs
             .into_par_iter()
-            .map(|dir| do_run_dir(&dir))
+            .map(|dir| do_run_dir(&dir.path))
             .collect::<Result<Vec<_>>>()
     })?;
     Ok(())

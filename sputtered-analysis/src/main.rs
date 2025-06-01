@@ -1,11 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use lammps_util_rust::{DumpFile, DumpSnapshot};
+use lammps_util_rust::{DumpFile, DumpSnapshot, RunDir, get_runs_dirs};
 use rayon::{ThreadPoolBuilder, prelude::*};
-use regex::Regex;
 use std::{
     collections::HashMap,
-    fs::read_dir,
     path::{Path, PathBuf},
 };
 
@@ -24,9 +22,9 @@ struct Cli {
 }
 
 struct Atom {
-    id: usize,
+    _id: usize,
     atype: usize,
-    coords: [f64; 3],
+    _coords: [f64; 3],
     velocity: [f64; 3],
     mass: f64,
 }
@@ -34,9 +32,9 @@ struct Atom {
 impl Atom {
     fn new(id: usize, atype: usize, coords: [f64; 3], velocity: [f64; 3], mass: f64) -> Self {
         Self {
-            id,
+            _id: id,
             atype,
-            coords,
+            _coords: coords,
             velocity,
             mass,
         }
@@ -113,29 +111,19 @@ fn get_clusters(dump: &DumpSnapshot) -> Vec<Cluster> {
     clusters.values().map(|atoms| Cluster::new(atoms)).collect()
 }
 
-fn do_single_dir(dir: &Path) -> Result<Vec<Cluster>> {
-    let dump = DumpFile::read(&dir.join("dump.sputter"), &[])?;
-    Ok(get_clusters(dump.get_snapshots()[0]))
+fn do_single_dir(dir: RunDir) -> Result<(usize, Vec<Cluster>)> {
+    let dump = DumpFile::read(&dir.path.join("dump.sputter"), &[])?;
+    let clusters = get_clusters(dump.get_snapshots()[0]);
+    Ok((dir.num, clusters))
 }
 
 fn do_results_dir(results_dir: &Path, threads: usize) -> Result<Vec<(usize, Vec<Cluster>)>> {
     let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
-    let re = Regex::new(r"^run_(\d+)$")?;
-    let mut entries = Vec::new();
-    for entry in read_dir(results_dir)? {
-        let run_dir = entry?.path();
-        if let Some(num) = re
-            .captures(&run_dir.file_name().unwrap_or_default().to_string_lossy())
-            .and_then(|caps| caps.get(1))
-            .and_then(|m| m.as_str().parse::<usize>().ok())
-        {
-            entries.push((num, run_dir));
-        };
-    }
+    let run_dirs = get_runs_dirs(results_dir)?;
     let mut results = tp.install(|| {
-        entries
+        run_dirs
             .into_par_iter()
-            .map(|(num, dir)| do_single_dir(&dir).map(|clusters| (num, clusters)))
+            .map(do_single_dir)
             .collect::<Result<Vec<_>>>()
     })?;
     results.sort_by(|a, b| a.0.cmp(&b.0));

@@ -10,4 +10,3 @@ env_logger = { workspace=true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 rayon = { workspace = true }
-regex = { workspace = true }

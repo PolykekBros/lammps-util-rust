@@ -10,7 +10,6 @@ kd-tree = { workspace=true }
 anyhow = { workspace=true }
 nalgebra = { workspace=true }
 itertools = { workspace=true }
-regex = { workspace=true }
 
 [workspace]
 members = [ "blob_5", "carbon-structure-analysis",
@@ -33,5 +32,4 @@ clap = { version = "4.5.20", features = ["derive"] }
 plotters = "0.3.7"
 log = "0.4.25"
 env_logger = "0.11.6"
-regex = "1.11.1"
 rayon = "1.10.0"
