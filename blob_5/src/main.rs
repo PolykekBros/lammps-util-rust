@@ -203,7 +203,14 @@ fn main() -> Result<()> {
     for i in 0..data_bottom.len() {
         let bottom = data_bottom[i];
         let top = data_top[i];
-        println!("{i} {} {} {} {}", bottom.0, bottom.1, top.0, top.1);
+        println!(
+            "{:.6}\t{:.6}\t{:.6}\t{:.6}\t{:.6}",
+            i as f32 * 10.0,
+            bottom.0,
+            bottom.1,
+            top.0,
+            top.1
+        );
     }
     Ok(())
 }
