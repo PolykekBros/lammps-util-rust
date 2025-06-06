@@ -2,7 +2,12 @@ use anyhow::{Result, bail};
 use clap::Parser;
 use lammps_util_rust::{DumpFile, RunDir, get_avg_with_std, get_runs_dirs};
 use rayon::{ThreadPoolBuilder, prelude::*};
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{BufRead, BufReader},
+    path::{Path, PathBuf},
+};
 
 const N: usize = 5;
 
@@ -27,14 +32,16 @@ impl Particle {
 
 struct Timestep {
     particles: Vec<Particle>,
-    _step: usize,
+    time: Option<f64>,
+    step: usize,
 }
 
 impl Timestep {
-    fn new(particles: Vec<Particle>, step: usize) -> Self {
+    fn new(particles: Vec<Particle>, time: Option<f64>, step: usize) -> Self {
         Self {
             particles,
-            _step: step,
+            time,
+            step,
         }
     }
 
@@ -108,8 +115,31 @@ impl Run {
     }
 }
 
-fn process_run_dir(run_dir: RunDir) -> Result<Run> {
+fn parse_time_from_log(times: &mut HashMap<usize, f64>, path: &Path) -> Result<()> {
+    let reader = BufReader::new(File::open(path)?);
+    let mut lines = reader.lines();
+    while let Some(line) = lines.next() {
+        if !line?.starts_with("Per MPI rank") {
+            continue;
+        }
+        lines.next();
+        while let Some(line) = lines.next() {
+            let line = line?;
+            let tokens = line.split_whitespace().collect::<Vec<_>>();
+            let step = tokens[0].parse::<usize>()?;
+            let time = tokens[7].parse::<f64>()?;
+            times.insert(step, time);
+        }
+    }
+    Ok(())
+}
+
+fn process_run_dir(run_dir: RunDir, is_read_time: bool) -> Result<Run> {
     let dump = DumpFile::read(&run_dir.path.join("dump.during"), &[])?;
+    let mut times = HashMap::new();
+    if is_read_time {
+        parse_time_from_log(&mut times, &run_dir.path.join("log.lammps"));
+    }
     let timesteps = dump
         .get_snapshots()
         .iter()
@@ -129,7 +159,9 @@ fn process_run_dir(run_dir: RunDir) -> Result<Run> {
                     Particle::new(pos, vel, ek[i], id[i] as usize)
                 })
                 .collect();
-            Timestep::new(particles, s.step as usize)
+            let step = s.step as usize;
+            let time = times.get(&step).copied();
+            Timestep::new(particles, time, step)
         })
         .collect();
     Ok(Run::new(timesteps, run_dir.num))
@@ -171,12 +203,12 @@ fn get_top_data(runs: &[Run]) -> Result<Vec<(f64, f64)>> {
     parse_data(&data)
 }
 
-fn get_data(results_dir: &Path, threads: usize) -> Result<Vec<Run>> {
+fn get_data(results_dir: &Path, threads: usize, is_read_time: bool) -> Result<Vec<Run>> {
     let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
     let dirs = get_runs_dirs(results_dir)?;
     tp.install(|| {
         dirs.into_par_iter()
-            .map(process_run_dir)
+            .map(|d| process_run_dir(d, is_read_time))
             .collect::<Result<Vec<_>>>()
     })
 }
@@ -191,18 +223,24 @@ struct Cli {
     /// Number of threads to use
     #[arg(short, long, default_value_t = 2)]
     threads: usize,
+
+    /// Read time from logs
+    #[arg(short = 'T', long)]
+    time: bool,
 }
 
 fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
-    let data = get_data(&cli.results_dir, cli.threads)?;
+    let data = get_data(&cli.results_dir, cli.threads, cli.time)?;
     let data_bottom = get_bottom_data(&data)?;
     let data_top = get_top_data(&data)?;
     println!("# N ek_avg_bottom std ek_avg_top std");
     for i in 0..data_bottom.len() {
         let bottom = data_bottom[i];
         let top = data_top[i];
+        print!("{i}");
+        if let Some(time)
         println!(
             "{:.6}\t{:.6}\t{:.6}\t{:.6}\t{:.6}",
             i as f32 * 10.0,
