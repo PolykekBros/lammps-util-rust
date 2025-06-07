@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Error, Result, bail};
 use clap::Parser;
 use lammps_util_rust::{DumpFile, RunDir, get_avg_with_std, get_runs_dirs};
 use rayon::{ThreadPoolBuilder, prelude::*};
@@ -119,34 +119,46 @@ impl Run {
     }
 }
 
-fn parse_time_from_log(times: &mut HashMap<usize, f64>, path: &Path) -> Result<()> {
-    let reader = BufReader::new(File::open(path)?);
+fn parse_time_from_log(path: &Path) -> Result<HashMap<usize, f64>> {
+    let mut times = HashMap::new();
+    let file = File::open(path).with_context(|| format!("Failed to open log file: {:?}", path))?;
+    let reader = BufReader::new(file);
     let mut lines = reader.lines();
     while let Some(line) = lines.next() {
-        if !line?.starts_with("Per MPI rank") {
+        let line = line.context("Failed to read line from log file")?;
+        if !line.starts_with("Per MPI rank") {
             continue;
         }
-        lines.next();
+        lines
+            .next()
+            .context("Expected a header line after 'Per MPI rank', but none found.")??;
         for line in lines.by_ref() {
-            let line = line?;
+            let line = line.context("Failed to read line from log file")?;
             if line.starts_with("Loop time of") {
                 break;
             }
             let tokens = line.split_whitespace().collect::<Vec<_>>();
-            let step = tokens[0].parse::<usize>()?;
-            let time = tokens[7].parse::<f64>()?;
+            let step = tokens
+                .first()
+                .context("Couldn't read timestep")?
+                .parse::<usize>()?;
+            let time = tokens
+                .get(7)
+                .context("Couldn't read time value")?
+                .parse::<f64>()?;
             times.insert(step, time);
         }
     }
-    Ok(())
+    Ok(times)
 }
 
 fn process_run_dir(run_dir: RunDir, is_read_time: bool) -> Result<Run> {
     let dump = DumpFile::read(&run_dir.path.join("dump.during"), &[])?;
-    let mut times = HashMap::new();
-    if is_read_time {
-        parse_time_from_log(&mut times, &run_dir.path.join("log.lammps"))?;
-    }
+    let times = if is_read_time {
+        Some(parse_time_from_log(&run_dir.path.join("log.lammps"))?)
+    } else {
+        None
+    };
     let timesteps = dump
         .get_snapshots()
         .iter()
@@ -167,10 +179,18 @@ fn process_run_dir(run_dir: RunDir, is_read_time: bool) -> Result<Run> {
                 })
                 .collect();
             let step = s.step as usize;
-            let time = times.get(&step).copied();
-            Timestep::new(particles, time, step)
+            let time = match &times {
+                Some(times_map) => Some(
+                    times_map
+                        .get(&step)
+                        .copied()
+                        .with_context(|| format!("No time data for timestep {}", step))?,
+                ),
+                None => None,
+            };
+            Ok(Timestep::new(particles, time, step))
         })
-        .collect();
+        .collect::<Result<Vec<_>, Error>>()?;
     Ok(Run::new(timesteps, run_dir.num))
 }
 
