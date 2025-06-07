@@ -250,7 +250,15 @@ fn main() -> Result<()> {
     let data = get_data(&cli.results_dir, cli.threads, cli.time)?;
     let data_bottom = get_bottom_data(&data)?;
     let data_top = get_top_data(&data)?;
-    let times = get_times_data(&data).transpose()?;
+    let times = if cli.time {
+        let times = get_times_data(&data).transpose()?;
+        if times.is_none() {
+            bail!("Failed to read times.");
+        }
+        times
+    } else {
+        None
+    };
     println!("# N ek_avg_bottom std ek_avg_top std");
     for i in 0..data_bottom.len() {
         let bottom = data_bottom[i];
