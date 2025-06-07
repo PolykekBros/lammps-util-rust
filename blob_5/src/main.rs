@@ -87,6 +87,10 @@ impl Run {
         }
     }
 
+    fn get_times(&self) -> Option<Vec<f64>> {
+        self.timesteps.iter().map(|r| r.time).collect()
+    }
+
     fn get_avg_energies_by_ids(&self, ids: &[usize]) -> Vec<f64> {
         self.timesteps
             .iter()
@@ -123,8 +127,11 @@ fn parse_time_from_log(times: &mut HashMap<usize, f64>, path: &Path) -> Result<(
             continue;
         }
         lines.next();
-        while let Some(line) = lines.next() {
+        for line in lines.by_ref() {
             let line = line?;
+            if line.starts_with("Loop time of") {
+                break;
+            }
             let tokens = line.split_whitespace().collect::<Vec<_>>();
             let step = tokens[0].parse::<usize>()?;
             let time = tokens[7].parse::<f64>()?;
@@ -138,7 +145,7 @@ fn process_run_dir(run_dir: RunDir, is_read_time: bool) -> Result<Run> {
     let dump = DumpFile::read(&run_dir.path.join("dump.during"), &[])?;
     let mut times = HashMap::new();
     if is_read_time {
-        parse_time_from_log(&mut times, &run_dir.path.join("log.lammps"));
+        parse_time_from_log(&mut times, &run_dir.path.join("log.lammps"))?;
     }
     let timesteps = dump
         .get_snapshots()
@@ -203,6 +210,14 @@ fn get_top_data(runs: &[Run]) -> Result<Vec<(f64, f64)>> {
     parse_data(&data)
 }
 
+fn get_times_data(runs: &[Run]) -> Option<Result<Vec<(f64, f64)>>> {
+    let data = runs
+        .iter()
+        .map(|r| r.get_times())
+        .collect::<Option<Vec<_>>>()?;
+    Some(parse_data(&data))
+}
+
 fn get_data(results_dir: &Path, threads: usize, is_read_time: bool) -> Result<Vec<Run>> {
     let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
     let dirs = get_runs_dirs(results_dir)?;
@@ -235,19 +250,19 @@ fn main() -> Result<()> {
     let data = get_data(&cli.results_dir, cli.threads, cli.time)?;
     let data_bottom = get_bottom_data(&data)?;
     let data_top = get_top_data(&data)?;
+    let times = get_times_data(&data).transpose()?;
     println!("# N ek_avg_bottom std ek_avg_top std");
     for i in 0..data_bottom.len() {
         let bottom = data_bottom[i];
         let top = data_top[i];
         print!("{i}");
-        if let Some(time)
+        if let Some(times) = times.as_ref() {
+            let time = times[i];
+            print!("\t{:.6}\t{:.6}", time.0, time.1);
+        }
         println!(
-            "{:.6}\t{:.6}\t{:.6}\t{:.6}\t{:.6}",
-            i as f32 * 10.0,
-            bottom.0,
-            bottom.1,
-            top.0,
-            top.1
+            "\t{:.6}\t{:.6}\t{:.6}\t{:.6}",
+            bottom.0, bottom.1, top.0, top.1
         );
     }
     Ok(())
