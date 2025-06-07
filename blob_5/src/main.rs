@@ -180,12 +180,13 @@ fn process_run_dir(run_dir: RunDir, is_read_time: bool) -> Result<Run> {
                 .collect();
             let step = s.step as usize;
             let time = match &times {
-                Some(times_map) => Some(
-                    times_map
-                        .get(&step)
-                        .copied()
-                        .with_context(|| format!("No time data for timestep {}", step))?,
-                ),
+                Some(times_map) => Some(times_map.get(&step).copied().with_context(|| {
+                    format!(
+                        "No time data for timestep {}: {}",
+                        step,
+                        run_dir.path.to_string_lossy()
+                    )
+                })?),
                 None => None,
             };
             Ok(Timestep::new(particles, time, step))
