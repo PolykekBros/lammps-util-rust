@@ -10,6 +10,7 @@ use std::{
 };
 
 const N: usize = 5;
+const MAX_STEP: usize = 1000;
 
 #[derive(Clone)]
 struct Particle {
@@ -162,6 +163,7 @@ fn process_run_dir(run_dir: RunDir, is_read_time: bool) -> Result<Run> {
     let timesteps = dump
         .get_snapshots()
         .iter()
+        .filter(|s| s.step <= MAX_STEP as u64)
         .map(|s| {
             let x = s.get_property("x");
             let y = s.get_property("y");
