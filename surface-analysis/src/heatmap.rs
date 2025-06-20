@@ -1,39 +1,39 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use colorgrad::Gradient;
-use lammps_util_rust::range_f64;
-use nalgebra::{point, DMatrix, Point2};
+use geomutil_util::Point2;
+use lammps_util_rust::range_f32;
 use plotters::{prelude::*, style::BLACK};
 
 pub struct Domain {
-    lo: Point2<f64>,
-    hi: Point2<f64>,
+    lo: Point2,
+    hi: Point2,
 }
 
 impl Domain {
-    pub fn new(p1: Point2<f64>, p2: Point2<f64>) -> Self {
+    pub fn new(a: Point2, b: Point2) -> Self {
         Domain {
-            lo: point![p1.x.min(p2.x), p1.y.min(p2.y)],
-            hi: point![p1.x.max(p2.x), p1.y.max(p2.y)],
+            lo: Point2::from([a.x.min(b.x), a.y.min(b.y)]),
+            hi: Point2::from([a.x.max(b.x), a.y.max(b.y)]),
         }
     }
 
-    pub fn lo(&self) -> Point2<f64> {
+    pub fn lo(&self) -> Point2 {
         self.lo
     }
 
-    pub fn hi(&self) -> Point2<f64> {
+    pub fn hi(&self) -> Point2 {
         self.hi
     }
 
-    pub fn width(&self) -> f64 {
+    pub fn width(&self) -> f32 {
         self.hi.x - self.lo.x
     }
 
-    pub fn height(&self) -> f64 {
+    pub fn height(&self) -> f32 {
         self.hi.y - self.lo.y
     }
 
-    pub fn area(&self) -> f64 {
+    pub fn area(&self) -> f32 {
         self.width() * self.height()
     }
 }
@@ -47,13 +47,13 @@ fn filled_style<C: Into<RGBAColor>>(color: C) -> ShapeStyle {
 }
 
 pub struct Colorbar<T: Gradient> {
-    min: f64,
-    max: f64,
+    min: f32,
+    max: f32,
     gradient: T,
 }
 
 impl<T: Gradient> Colorbar<T> {
-    pub fn new(min: f64, max: f64, gradient: T) -> Self {
+    pub fn new(min: f32, max: f32, gradient: T) -> Self {
         Self {
             min: min.min(max),
             max: min.max(max),
@@ -61,7 +61,7 @@ impl<T: Gradient> Colorbar<T> {
         }
     }
 
-    pub fn color(&self, value: f64) -> RGBColor {
+    pub fn color(&self, value: f32) -> RGBColor {
         let value = self.min.max(value).min(self.max);
         let scaled = (value - self.min) / (self.max - self.min);
         let rgba = self.gradient.at(scaled as f32).to_rgba8();
@@ -89,7 +89,7 @@ impl<T: Gradient> Colorbar<T> {
             .draw()
             .unwrap();
         let plotting_area = chart_context.plotting_area();
-        range_f64(min, max, 256).iter().for_each(|&value| {
+        range_f32(min, max, 256).iter().for_each(|&value| {
             let color = self.color(value);
             let rectangle =
                 Rectangle::new([(0.0, value), (1.0, value + step)], filled_style(color));
@@ -104,9 +104,7 @@ pub fn heatmap<DB: DrawingBackend, T: Gradient>(
     colorbar: &Colorbar<T>,
     mut chart_builder: ChartBuilder<DB>,
 ) -> Result<()> {
-    if !domain.area().is_normal() {
-        return Err(anyhow!("Invalid domain"));
-    }
+    assert!(domain.area().is_normal());
 
     let mut chart_context = chart_builder
         .margin_top(10)
@@ -135,9 +133,9 @@ pub fn heatmap<DB: DrawingBackend, T: Gradient>(
     let y_step = domain.height() / y_count as f64;
 
     x_values.iter().for_each(|&x| {
-        let r_x = domain.lo().x + x as f64 * x_step;
+        let r_x = domain.lo().x + x as f32 * x_step;
         y_values.iter().for_each(|&y| {
-            let r_y = domain.lo().y + y as f64 * y_step;
+            let r_y = domain.lo().y + y as f32 * y_step;
             let rectangle = Rectangle::new(
                 [(r_x, r_y), (r_x + x_step, r_y + y_step)],
                 filled_style(colorbar.color(data[(x, y)])),

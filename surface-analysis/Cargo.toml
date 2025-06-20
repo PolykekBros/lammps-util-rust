@@ -5,9 +5,11 @@ edition = "2021"
 
 [dependencies]
 lammps-util-rust = { path = "../"}
+log = { workspace=true }
+env_logger = { workspace=true }
 clap = { workspace = true }
 colorgrad = { workspace = true }
 itertools = { workspace = true }
-nalgebra = { workspace = true }
 anyhow = { workspace = true }
 plotters = { workspace = true }
+geomutil_util = "0.1.2"

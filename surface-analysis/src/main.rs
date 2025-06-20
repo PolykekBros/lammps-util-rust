@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Result};
-use clap::Parser;
+use clap::{Args, Parser, Subcommand};
 use colorgrad::preset::viridis;
+use geomutil_util::{Point2, Point3};
 use itertools::{izip, Itertools};
-use lammps_util_rust::DumpFile;
-use nalgebra::{point, DMatrix, DVector, Point3};
+use lammps_util_rust::{DumpFile, Mat, XYZ};
 use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, IntoDrawingArea},
@@ -21,13 +21,8 @@ use heatmap::{heatmap, Colorbar, Domain};
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    /// Input files of the final crystal
-    #[arg()]
-    dump_final: Vec<PathBuf>,
-
-    /// Directory where to save resulting plots and tables
-    #[arg(short, long)]
-    output_dir: Option<PathBuf>,
+    #[command(subcommand)]
+    command: Commands,
 
     /// Width of the approximation square (A)
     #[arg(short, long, default_value_t = 5.43 / 2.0)]
@@ -38,59 +33,124 @@ struct Cli {
     zero_lvl: f64,
 }
 
-fn get_surface_values(xyz: &[Point3<f64>], domain: &Domain, square_width: f64) -> DMatrix<f64> {
-    assert!(square_width > 0.0);
-    let x_count = (domain.width() / square_width).ceil() as usize;
-    let y_count = (domain.height() / square_width).ceil() as usize;
-    let mut values = DMatrix::repeat(x_count, y_count, f64::NAN);
-    xyz.iter()
-        .copied()
-        .filter(|p| {
-            p.x >= domain.lo().x
-                && p.x <= domain.hi().x
-                && p.y >= domain.lo().y
-                && p.y <= domain.hi().y
-        })
-        .for_each(|p| {
-            let x_i = ((p.x - domain.lo().x) / square_width).floor() as usize;
-            let y_i = ((p.y - domain.lo().y) / square_width).floor() as usize;
-            let x_i = x_i.min(x_count - 1);
-            let y_i = y_i.min(y_count - 1);
-            values[(x_i, y_i)] = values[(x_i, y_i)].max(p.z);
-        });
-    let check_value = |vals: &DMatrix<f64>, x_i: i64, y_i: i64| {
-        if x_i < 0 || y_i < 0 || x_i >= x_count as i64 || y_i >= y_count as i64 {
-            f64::NAN
-        } else {
-            vals[(x_i as usize, y_i as usize)]
+#[derive(Subcommand)]
+enum Commands {
+    /// Crater analysis for a single run dir
+    Single(SingleCMD),
+
+    /// Crater analysis for the whole results folder
+    Multi(MultiCMD),
+}
+
+#[derive(Args)]
+struct SingleCMD {
+    run_dir: PathBuf,
+}
+
+#[derive(Args)]
+struct MultiCMD {
+    results_dir: PathBuf,
+
+    /// Number of threads to run in parallel
+    #[arg(short, long, default_value_t = 2)]
+    threads: usize,
+}
+
+struct SurfaceValues {
+    data: Vec<f32>,
+    x_count: usize,
+    y_count: usize,
+}
+
+impl SurfaceValues {
+    pub fn new(x_count: usize, y_count: usize) -> Self {
+        Self {
+            data: vec![f32::NAN; (x_count * y_count) as usize],
+            x_count,
+            y_count,
         }
-    };
-    println!("NaNs: {}", values.iter().filter(|v| v.is_nan()).count());
-    (0..x_count as i64).for_each(|x_i| {
-        (0..y_count as i64).for_each(|y_i| {
-            if values[(x_i as usize, y_i as usize)].is_nan() {
-                let (value_sum, value_cnt) = [
-                    check_value(&values, x_i - 1, y_i - 1),
-                    check_value(&values, x_i - 1, y_i),
-                    check_value(&values, x_i - 1, y_i + 1),
-                    check_value(&values, x_i, y_i - 1),
-                    check_value(&values, x_i, y_i),
-                    check_value(&values, x_i, y_i + 1),
-                    check_value(&values, x_i + 1, y_i - 1),
-                    check_value(&values, x_i + 1, y_i),
-                    check_value(&values, x_i + 1, y_i + 1),
-                ]
-                .into_iter()
+    }
+
+    fn get_i(&self, x_i: usize, y_i: usize) -> usize {
+        x_i * self.y_count + y_i
+    }
+
+    pub fn at(&self, x_i: usize, y_i: usize) -> &f32 {
+        assert!(x_i < self.x_count);
+        assert!(y_i < self.y_count);
+        let i = self.get_i(x_i, y_i);
+        &self.data[i]
+    }
+
+    pub fn at_mut(&mut self, x_i: usize, y_i: usize) -> &mut f32 {
+        assert!(x_i < self.x_count);
+        assert!(y_i < self.y_count);
+        let i = self.get_i(x_i, y_i);
+        &mut self.data[i]
+    }
+
+    pub fn at_i64(&self, x_i: i64, y_i: i64) -> &f32 {
+        if x_i < 0 || y_i < 0 || x_i >= self.x_count as i64 || y_i >= self.y_count as i64 {
+            &f32::NAN
+        } else {
+            self.at(x_i as usize, y_i as usize)
+        }
+    }
+}
+
+fn get_surface_values(
+    xyz: impl IntoIterator<Item = XYZ>,
+    domain: &Domain,
+    square_width: f32,
+    zero_lvl: f32,
+) -> SurfaceValues {
+    assert!(square_width > 0.0);
+    let x_count = (domain.width() / square_width as f32).ceil() as usize;
+    let y_count = (domain.height() / square_width as f32).ceil() as usize;
+    let mut values = SurfaceValues::new(x_count, y_count);
+    xyz.into_iter()
+        .map(|p| {
+            Point3::from([
+                (p.x as f32 - domain.lo().x) / square_width,
+                (p.y as f32 - domain.lo().y) / square_width,
+                p.z as f32 - zero_lvl,
+            ])
+        })
+        .filter(|p| p.x >= 0.0 && p.x <= x_count as f32 && p.y >= 0.0 && p.y <= y_count as f32)
+        .for_each(|p| {
+            let x_i = (p.x as usize).min(x_count - 1);
+            let y_i = (p.y as usize).min(y_count - 1);
+            *values.at_mut(x_i, y_i) = values.at(x_i, y_i).max(p.z);
+        });
+    log::debug!(
+        "intial NaNs: {}",
+        values.data.iter().filter(|v| v.is_nan()).count()
+    );
+    (0..x_count)
+        .flat_map(|x_i| (0..y_count).map(move |y_i| (x_i, y_i)))
+        .filter(|(x_i, y_i)| values.at(*x_i, *y_i).is_nan())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .for_each(|(x_i, y_i)| {
+            let (sum, cnt) = (-1..=1)
+                .flat_map(|x_i_offset| (-1..=1).map(move |y_i_offset| (x_i_offset, y_i_offset)))
+                .map(|(x_i_offset, y_i_offset)| {
+                    *values.at_i64(x_i as i64 + x_i_offset, y_i as i64 + y_i_offset)
+                })
                 .filter(|value| !value.is_nan())
                 .fold((0.0, 0), |(sum, cnt), value| (sum + value, cnt + 1));
-                values[(x_i as usize, y_i as usize)] = value_sum / value_cnt as f64;
+            if cnt != 0 {
+                *values.at_mut(x_i, y_i) = sum / cnt as f32;
             }
         });
-    });
+    log::debug!(
+        "after interpolation NaNs: {}",
+        values.data.iter().filter(|v| v.is_nan()).count()
+    );
     values
 }
 
-fn plot_surface_2d(output_dir: &Path, values: &DMatrix<f64>, domain: &Domain) -> Result<()> {
+fn plot_surface_2d(output_dir: &Path, values: &SurfaceValues, domain: &Domain) -> Result<()> {
     let plot_width: u32 = 640;
     let plot_height: u32 = 512;
     let plot_color_width: u32 = 80;
@@ -115,58 +175,43 @@ fn plot_surface_2d(output_dir: &Path, values: &DMatrix<f64>, domain: &Domain) ->
     Ok(())
 }
 
-fn parse_dump_final(
-    dump_final_path: &Path,
-    domain: &Domain,
-    square_width: f64,
-    zero_lvl: f64,
-) -> Result<DMatrix<f64>> {
-    println!("{}", dump_final_path.to_string_lossy());
-    let parent_dir = dump_final_path.parent().ok_or(anyhow!(
-        "Unable to take parent directory: {}",
-        dump_final_path.to_string_lossy()
-    ))?;
-    let surface_coords_txt = parent_dir.join("surface_coords.txt");
-
-    let dump_final = DumpFile::read(dump_final_path, &[])?;
-    let snapshot = dump_final.get_snapshots()[0];
-    let snapshot_x = DVector::from_column_slice(snapshot.get_property("x"));
-    let snapshot_y = DVector::from_column_slice(snapshot.get_property("y"));
-    let snapshot_z = DVector::from_column_slice(snapshot.get_property("z"));
-    let xyz = izip![snapshot_x.iter(), snapshot_y.iter(), snapshot_z.iter()]
-        .map(|(&x, &y, &z)| point![x, y, z])
-        .collect::<Vec<_>>();
-    let values = get_surface_values(&xyz, domain, square_width).add_scalar(-zero_lvl);
-    plot_surface_2d(parent_dir, &values, domain)?;
-    write_surface_coords(&surface_coords_txt, domain, &values)?;
-    println!("values.shape: {:?}", values.shape());
-    Ok(values)
-}
-
-fn write_surface_coords(path: &Path, domain: &Domain, values: &DMatrix<f64>) -> Result<()> {
+fn write_surface_coords(path: &Path, domain: &Domain, values: &SurfaceValues) -> Result<()> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
     writeln!(writer, "{} {}", domain.lo().x, domain.lo().y)?;
     writeln!(writer, "{} {}", domain.hi().x, domain.hi().y)?;
-    values.row_iter().try_for_each(|row| {
-        let line = row.iter().map(ToString::to_string).join(" ");
-        writeln!(writer, "{line}")?;
-        anyhow::Ok(())
-    })?;
+    for x_i in 0..values.x_count {
+        write!(writer, "{}", values.at(x_i, 0))?;
+        for y_i in 1..values.y_count {
+            write!(writer, "\t{}", values.at(x_i, y_i))?;
+        }
+        write!(writer, "\n")?;
+    }
     Ok(())
 }
 
+fn process_dir(path: &Path, square_width: f64, zero_lvl: f64) -> Result<SurfaceValues> {
+    let dump_final = DumpFile::read(&path.join("dump.final"), &[])?;
+    let snapshot = dump_final.get_snapshots()[0];
+    let domain = Domain::new(
+        Point2::from([snapshot.sym_box.xlo as f32, snapshot.sym_box.ylo as f32]),
+        Point2::from([snapshot.sym_box.xhi as f32, snapshot.sym_box.yhi as f32]),
+    );
+    let surface_coords_txt_path = path.join("surface_coords.txt");
+    let coords = snapshot.get_coordinates();
+    let values = get_surface_values(coords, &domain, square_width as f32, zero_lvl as f32);
+    plot_surface_2d(path, &values, &domain)?;
+    write_surface_coords(&surface_coords_txt_path, &domain, &values)?;
+    Ok(values)
+}
+
+fn process_results()
+
 fn main() -> Result<()> {
+    env_logger::init();
     let cli = Cli::parse();
 
     let dump_final_path = &cli.dump_final[0];
-    let dump_final = DumpFile::read(dump_final_path, &[])?;
-    let snapshot = dump_final.get_snapshots()[0];
-    let domain = Domain::new(
-        point![snapshot.sym_box.xlo, snapshot.sym_box.ylo],
-        point![snapshot.sym_box.xhi, snapshot.sym_box.yhi],
-    );
-    let values = parse_dump_final(dump_final_path, &domain, cli.width, cli.zero_lvl)?;
     let values = cli.dump_final[1..]
         .iter()
         .try_fold(values, |values, dump_final_path| {
