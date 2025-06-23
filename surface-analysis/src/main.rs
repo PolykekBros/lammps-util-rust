@@ -220,22 +220,16 @@ fn analyze_results_dir(
     threads: usize,
     square_width: f64,
     zero_lvl: f64,
-) -> Result<SurfaceValues> {
+) -> Result<Vec<SurfaceValues>> {
     let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
     let run_dirs = get_runs_dirs(dir)?;
     let mut results = tp.install(|| {
         run_dirs
-            .into_par_iter()
-            .map(|run_dir| do_run_dir(&run_dir, square_width, zero_lvl))
+            .map(|run_dir| do_run_dir(&run_dir?, square_width, zero_lvl))
             .collect::<Result<Vec<_>>>()
     })?;
     results.sort_by(|a, b| a.0.cmp(&b.0));
-    let result = results
-        .iter()
-        .map(|(num, info)| format!("{num} {info}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    Ok(result)
+    Ok(results.into_iter().map(|(_, values)| values).collect())
 }
 
 // fn process_results()

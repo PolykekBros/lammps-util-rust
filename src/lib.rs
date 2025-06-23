@@ -4,10 +4,10 @@ mod dump_snapshot;
 mod math;
 mod xyz;
 
-use anyhow::Result;
 use log::debug;
 use std::{
     fs::read_dir,
+    io,
     path::{Path, PathBuf},
 };
 
@@ -17,7 +17,7 @@ pub use dump_snapshot::{
     copy_snapshot, copy_snapshot_with_indices, copy_snapshot_with_indices_with_keys,
     copy_snapshot_with_keys, DumpSnapshot, SymBox,
 };
-pub use math::{get_avg, get_avg_with_std, get_std, range_f32, range_f64, Mat};
+pub use math::{get_avg, get_avg_with_std, get_std, range_f32, range_f64};
 pub use xyz::{check_cutoff, XYZ};
 
 pub struct RunDir {
@@ -31,18 +31,20 @@ impl RunDir {
     }
 }
 
-pub fn get_runs_dirs(results_dir: &Path) -> Result<Vec<RunDir>> {
-    let mut runs = vec![];
-    for e in read_dir(results_dir)? {
-        let path = e?.path();
-        if let Some(n) = path
-            .file_name()
-            .and_then(|name| name.to_str()?.strip_prefix("run_")?.parse::<usize>().ok())
-        {
-            runs.push(RunDir::new(path, n));
-        }
-    }
-    Ok(runs)
+pub fn get_runs_dirs(results_dir: &Path) -> io::Result<impl Iterator<Item = io::Result<RunDir>>> {
+    Ok(read_dir(results_dir)?.flat_map(|e| {
+        e.map(|e| {
+            let p = e.path();
+            let i = p
+                .file_name()?
+                .to_str()?
+                .strip_prefix("run_")?
+                .parse::<usize>()
+                .ok()?;
+            Some(RunDir::new(p, i))
+        })
+        .transpose()
+    }))
 }
 
 fn crater_candidates_snapshot(
