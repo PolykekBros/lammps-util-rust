@@ -17,7 +17,7 @@ pub use dump_snapshot::{
     copy_snapshot, copy_snapshot_with_indices, copy_snapshot_with_indices_with_keys,
     copy_snapshot_with_keys, DumpSnapshot, SymBox,
 };
-pub use math::{get_avg, get_avg_with_std, get_std, range_f64};
+pub use math::{get_avg, get_avg_with_std, get_std, range_f32, range_f64, Mat};
 pub use xyz::{check_cutoff, XYZ};
 
 pub struct RunDir {

@@ -2,13 +2,14 @@ use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use colorgrad::preset::viridis;
 use geomutil_util::{Point2, Point3};
-use itertools::{izip, Itertools};
-use lammps_util_rust::{DumpFile, Mat, XYZ};
+use itertools::Itertools;
+use lammps_util_rust::{get_runs_dirs, DumpFile, RunDir, XYZ};
 use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, IntoDrawingArea},
     style::WHITE,
 };
+use rayon::{prelude::*, ThreadPoolBuilder};
 use std::{
     fs::File,
     io::{BufWriter, Write},
@@ -190,7 +191,7 @@ fn write_surface_coords(path: &Path, domain: &Domain, values: &SurfaceValues) ->
     Ok(())
 }
 
-fn process_dir(path: &Path, square_width: f64, zero_lvl: f64) -> Result<SurfaceValues> {
+fn analyze_single_run(path: &Path, square_width: f64, zero_lvl: f64) -> Result<SurfaceValues> {
     let dump_final = DumpFile::read(&path.join("dump.final"), &[])?;
     let snapshot = dump_final.get_snapshots()[0];
     let domain = Domain::new(
@@ -205,24 +206,69 @@ fn process_dir(path: &Path, square_width: f64, zero_lvl: f64) -> Result<SurfaceV
     Ok(values)
 }
 
-fn process_results()
+fn do_run_dir(
+    run_dir: &RunDir,
+    square_width: f64,
+    zero_lvl: f64,
+) -> Result<(usize, SurfaceValues)> {
+    let values = analyze_single_run(&run_dir.path, square_width, zero_lvl)?;
+    Ok((run_dir.num, values))
+}
+
+fn analyze_results_dir(
+    dir: &Path,
+    threads: usize,
+    square_width: f64,
+    zero_lvl: f64,
+) -> Result<SurfaceValues> {
+    let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
+    let run_dirs = get_runs_dirs(dir)?;
+    let mut results = tp.install(|| {
+        run_dirs
+            .into_par_iter()
+            .map(|run_dir| do_run_dir(&run_dir, square_width, zero_lvl))
+            .collect::<Result<Vec<_>>>()
+    })?;
+    results.sort_by(|a, b| a.0.cmp(&b.0));
+    let result = results
+        .iter()
+        .map(|(num, info)| format!("{num} {info}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(result)
+}
+
+// fn process_results()
+
+// fn main() -> Result<()> {
+//     env_logger::init();
+//     let cli = Cli::parse();
+
+//     let dump_final_path = &cli.dump_final[0];
+//     let values = cli.dump_final[1..]
+//         .iter()
+//         .try_fold(values, |values, dump_final_path| {
+//             let values_new = parse_dump_final(dump_final_path, &domain, cli.width, cli.zero_lvl)?;
+//             anyhow::Ok::<DMatrix<f64>>(values + values_new)
+//         })?;
+//     if let Some(output_dir) = cli.output_dir {
+//         let values = values.scale(1.0 / cli.dump_final.len() as f64);
+//         plot_surface_2d(&output_dir, &values, &domain)?;
+//         let surface_coords_txt = output_dir.join("surface_coords.txt");
+//         write_surface_coords(&surface_coords_txt, &domain, &values)?;
+//     }
+//     Ok(())
+// }
 
 fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
 
-    let dump_final_path = &cli.dump_final[0];
-    let values = cli.dump_final[1..]
-        .iter()
-        .try_fold(values, |values, dump_final_path| {
-            let values_new = parse_dump_final(dump_final_path, &domain, cli.width, cli.zero_lvl)?;
-            anyhow::Ok::<DMatrix<f64>>(values + values_new)
-        })?;
-    if let Some(output_dir) = cli.output_dir {
-        let values = values.scale(1.0 / cli.dump_final.len() as f64);
-        plot_surface_2d(&output_dir, &values, &domain)?;
-        let surface_coords_txt = output_dir.join("surface_coords.txt");
-        write_surface_coords(&surface_coords_txt, &domain, &values)?;
-    }
+    let info = match &cli.command {
+        Commands::Single(args) => analyze_single_run(&args.run_dir, cli.width, cli.zero_lvl)?,
+        Commands::Multi(args) => {
+            analyze_results_dir(&args.results_dir, args.threads, cli.width, cli.zero_lvl)?
+        }
+    };
     Ok(())
 }

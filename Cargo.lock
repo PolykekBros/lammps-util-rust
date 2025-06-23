@@ -560,7 +560,7 @@ name = "geomutil"
 version = "0.1.2"
 dependencies = [
  "geomutil_triangulation",
- "geomutil_util",
+ "geomutil_util 0.1.2",
  "serde",
  "serde_json",
 ]
@@ -569,12 +569,22 @@ dependencies = [
 name = "geomutil_triangulation"
 version = "0.1.1"
 dependencies = [
- "geomutil_util",
+ "geomutil_util 0.1.2",
 ]
 
 [[package]]
 name = "geomutil_util"
-version = "0.1.1"
+version = "0.1.2"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "geomutil_util"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3ab8eececcaa576855fdb59e04f28476f4e2b7df00ac08b8d20c61ae6ff6c0e"
 dependencies = [
  "serde",
  "serde_json",
@@ -1252,10 +1262,13 @@ dependencies = [
  "anyhow",
  "clap",
  "colorgrad",
+ "env_logger",
+ "geomutil_util 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools",
  "lammps-util-rust",
- "nalgebra",
+ "log",
  "plotters",
+ "rayon",
 ]
 
 [[package]]

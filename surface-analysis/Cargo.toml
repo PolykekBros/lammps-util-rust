@@ -12,4 +12,5 @@ colorgrad = { workspace = true }
 itertools = { workspace = true }
 anyhow = { workspace = true }
 plotters = { workspace = true }
+rayon = { workspace = true }
 geomutil_util = "0.1.2"

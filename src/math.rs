@@ -1,3 +1,9 @@
+pub fn range_f32(begin: f32, end: f32, count: usize) -> Vec<f32> {
+    assert!(begin <= end);
+    let step = (end - begin) / 1.max(count - 1) as f32;
+    (0..count).map(|n| begin + n as f32 * step).collect()
+}
+
 pub fn range_f64(begin: f64, end: f64, count: usize) -> Vec<f64> {
     assert!(begin <= end);
     let step = (end - begin) / 1.max(count - 1) as f64;
