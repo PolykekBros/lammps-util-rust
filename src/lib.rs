@@ -4,7 +4,9 @@ mod dump_snapshot;
 mod math;
 mod xyz;
 
+use anyhow::Result;
 use log::debug;
+use rayon::ThreadPoolBuilder;
 use std::{
     fs::read_dir,
     io,
@@ -45,6 +47,29 @@ pub fn get_runs_dirs(results_dir: &Path) -> io::Result<impl Iterator<Item = io::
         })
         .transpose()
     }))
+}
+
+pub fn process_results_dir<T, F>(
+    dir: &Path,
+    threads: usize,
+    processor: F,
+) -> Result<Vec<(RunDir, T)>>
+where
+    T: Send,
+    F: Fn(&RunDir) -> Result<T> + Send + Sync,
+{
+    let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
+    let run_dirs_iter = get_runs_dirs(dir)?;
+    let mut results = tp.install(|| {
+        run_dirs_iter
+            .map(|run_dir| {
+                let run_dir = run_dir?;
+                processor(&run_dir).map(|r| (run_dir, r))
+            })
+            .collect::<Result<Vec<_>>>()
+    })?;
+    results.sort_by(|a, b| a.0.num.cmp(&b.0.num));
+    Ok(results)
 }
 
 fn crater_candidates_snapshot(
