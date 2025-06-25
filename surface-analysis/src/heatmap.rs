@@ -4,6 +4,9 @@ use geomutil_util::Point2;
 use lammps_util_rust::range_f32;
 use plotters::{prelude::*, style::BLACK};
 
+use crate::SurfaceValues;
+
+#[derive(Debug, Clone)]
 pub struct Domain {
     lo: Point2,
     hi: Point2,
@@ -64,7 +67,7 @@ impl<T: Gradient> Colorbar<T> {
     pub fn color(&self, value: f32) -> RGBColor {
         let value = self.min.max(value).min(self.max);
         let scaled = (value - self.min) / (self.max - self.min);
-        let rgba = self.gradient.at(scaled as f32).to_rgba8();
+        let rgba = self.gradient.at(scaled).to_rgba8();
         RGBColor(rgba[0], rgba[1], rgba[2])
     }
 
@@ -99,18 +102,20 @@ impl<T: Gradient> Colorbar<T> {
 }
 
 pub fn heatmap<DB: DrawingBackend, T: Gradient>(
-    data: &DMatrix<f64>,
-    domain: &Domain,
+    data: &SurfaceValues,
     colorbar: &Colorbar<T>,
     mut chart_builder: ChartBuilder<DB>,
 ) -> Result<()> {
-    assert!(domain.area().is_normal());
+    assert!(data.domain.area().is_normal());
 
     let mut chart_context = chart_builder
         .margin_top(10)
         .x_label_area_size(25)
         .y_label_area_size(40)
-        .build_cartesian_2d(domain.lo().x..domain.hi().x, domain.lo().y..domain.hi().y)
+        .build_cartesian_2d(
+            data.domain.lo().x..data.domain.hi().x,
+            data.domain.lo().y..data.domain.hi().y,
+        )
         .unwrap();
 
     chart_context
@@ -124,25 +129,19 @@ pub fn heatmap<DB: DrawingBackend, T: Gradient>(
         .unwrap();
 
     let plotting_area = chart_context.plotting_area();
-
-    let x_count = data.shape().0;
-    let x_values = (0..x_count).collect::<Vec<_>>();
-    let x_step = domain.width() / x_count as f64;
-    let y_count = data.shape().1;
-    let y_values = (0..y_count).collect::<Vec<_>>();
-    let y_step = domain.height() / y_count as f64;
-
-    x_values.iter().for_each(|&x| {
-        let r_x = domain.lo().x + x as f32 * x_step;
-        y_values.iter().for_each(|&y| {
-            let r_y = domain.lo().y + y as f32 * y_step;
+    (0..data.x_count)
+        .flat_map(|x_i| (0..data.y_count).map(move |y_i| (x_i, y_i)))
+        .for_each(|(x_i, y_i)| {
+            let r_x = data.domain.lo().x + x_i as f32 * data.square_width;
+            let r_y = data.domain.lo().y + y_i as f32 * data.square_width;
             let rectangle = Rectangle::new(
-                [(r_x, r_y), (r_x + x_step, r_y + y_step)],
-                filled_style(colorbar.color(data[(x, y)])),
+                [
+                    (r_x, r_y),
+                    (r_x + data.square_width, r_y + data.square_width),
+                ],
+                filled_style(colorbar.color(*data.at(x_i, y_i))),
             );
             plotting_area.draw(&rectangle).unwrap();
         });
-    });
-
     Ok(())
 }

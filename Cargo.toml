@@ -10,6 +10,7 @@ kd-tree = { workspace=true }
 anyhow = { workspace=true }
 nalgebra = { workspace=true }
 itertools = { workspace=true }
+rayon = { workspace=true }
 
 [workspace]
 members = [ "blob_5", "carbon-structure-analysis",

@@ -717,6 +717,7 @@ dependencies = [
  "kd-tree",
  "log",
  "nalgebra",
+ "rayon",
  "typenum",
 ]
 
@@ -1268,7 +1269,6 @@ dependencies = [
  "lammps-util-rust",
  "log",
  "plotters",
- "rayon",
 ]
 
 [[package]]
