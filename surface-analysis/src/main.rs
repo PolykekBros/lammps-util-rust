@@ -215,7 +215,7 @@ fn save_results(path: &Path, values: &SurfaceValues) -> Result<()> {
 }
 
 fn analyze_single_run(path: &Path, square_width: f64, zero_lvl: f64) -> Result<SurfaceValues> {
-    let dump_final = DumpFile::read(&path.join("dump.final"), &[])?;
+    let dump_final = DumpFile::read(&path.join("dump.final_no_cluster"), &[])?;
     let snapshot = dump_final.get_snapshots()[0];
     let domain = Domain::new(
         Point2::from([snapshot.sym_box.xlo as f32, snapshot.sym_box.ylo as f32]),
