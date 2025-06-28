@@ -245,9 +245,9 @@ fn main() -> Result<()> {
                 .into_iter()
                 .map(|x| x as f64)
                 .avg_with_std()
-                .unwrap();
-            let (m_avg, m_std) = row.mass.into_iter().avg_with_std().unwrap();
-            let (r_avg, r_std) = row.radius.into_iter().avg_with_std().unwrap();
+                .unwrap_or_default();
+            let (m_avg, m_std) = row.mass.into_iter().avg_with_std().unwrap_or_default();
+            let (r_avg, r_std) = row.radius.into_iter().avg_with_std().unwrap_or_default();
             let vals = [n_avg, n_std, m_avg, m_std, r_avg, r_std]
                 .into_iter()
                 .map(|x| format!("{x:10.4}"))
