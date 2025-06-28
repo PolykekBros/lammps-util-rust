@@ -1,15 +1,18 @@
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
+use core::f32;
+use geomutil_util::Point2;
+use itertools::{izip, Itertools};
 use lammps_util_rust::{
-    clusterize_snapshot, copy_snapshot_with_indices, get_avg_with_std, get_cluster_counts,
-    get_runs_dirs, DumpFile, DumpSnapshot,
+    clusterize_snapshot, copy_snapshot_with_indices, get_cluster_counts, process_results_dir,
+    DumpFile, DumpSnapshot, IteratorAvg,
 };
 use log::info;
-use nalgebra::{vector, Vector2};
 use std::{
     collections::HashSet,
     fs::File,
     io::{BufRead, BufReader},
+    iter::zip,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -17,8 +20,9 @@ use std::{
 const RIM_THRESHOLD: usize = 10;
 const CLUSTER_TRAJECTORY_LINE: usize = 38;
 const ANGLE_ROTATION: usize = 10;
-const DATA_LEN: usize = 360 / ANGLE_ROTATION;
-type Data = [Vec<f64>; DATA_LEN];
+const SECTORS_LEN: usize = 360 / ANGLE_ROTATION;
+const MASS: [f32; 3] = [0.0, 28.08553, 12.011];
+type Sectors = [Sector; SECTORS_LEN];
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -33,17 +37,82 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Analyse a single run dir
-    Single {
-        /// Run directory
-        dir: PathBuf,
-    },
+    /// Crater analysis for a single run dir
+    Single(SingleCMD),
 
-    /// Analyse a whole results dir
-    All {
-        /// Results directory
-        dir: PathBuf,
-    },
+    /// Crater analysis for the whole results folder
+    Multi(MultiCMD),
+}
+
+#[derive(Args)]
+struct SingleCMD {
+    run_dir: PathBuf,
+}
+
+#[derive(Args)]
+struct MultiCMD {
+    results_dir: PathBuf,
+
+    /// Number of threads to run in parallel
+    #[arg(short, long, default_value_t = 2)]
+    threads: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Atom {
+    coords: Point2,
+    atype: usize,
+}
+
+impl Atom {
+    fn new(coords: Point2, atype: usize) -> Self {
+        Self { coords, atype }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RimValues {
+    atoms: Vec<Atom>,
+    center: Point2,
+}
+
+impl RimValues {
+    fn new(atoms: Vec<Atom>, center: Point2) -> Self {
+        let mut atoms = atoms;
+        atoms.iter_mut().for_each(|a| a.coords -= center);
+        Self { atoms, center }
+    }
+
+    fn get_sectors(&self) -> Sectors {
+        std::array::from_fn(|i| {
+            Sector::new(
+                self.atoms
+                    .iter()
+                    .filter(|a| {
+                        ((point_rotation(a.coords) / ANGLE_ROTATION as f32).floor() as usize)
+                            .clamp(0, SECTORS_LEN)
+                            == i
+                    })
+                    .copied()
+                    .collect(),
+            )
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct Sector {
+    radius: Vec<f32>,
+    mass: Vec<f32>,
+}
+
+impl Sector {
+    fn new(atoms: Vec<Atom>) -> Self {
+        Self {
+            radius: atoms.iter().map(|a| a.coords.length()).collect(),
+            mass: atoms.iter().map(|a| MASS[a.atype]).collect(),
+        }
+    }
 }
 
 fn get_above_zero(snap: &DumpSnapshot, zero_lvl: f64) -> DumpSnapshot {
@@ -56,15 +125,7 @@ fn get_above_zero(snap: &DumpSnapshot, zero_lvl: f64) -> DumpSnapshot {
     copy_snapshot_with_indices(snap, indices)
 }
 
-fn filter_clusters(snap: &DumpSnapshot) -> HashSet<usize> {
-    let cnts = get_cluster_counts(snap);
-    cnts.iter()
-        .filter(|(_, &cnt)| cnt >= RIM_THRESHOLD)
-        .map(|(&id, _)| id)
-        .collect()
-}
-
-fn rim_snapshot(
+fn get_rim_snapshot(
     initial_snapshot: &DumpSnapshot,
     final_snapshot: &DumpSnapshot,
     cutoff: f64,
@@ -72,7 +133,11 @@ fn rim_snapshot(
     let zero_lvl = initial_snapshot.get_zero_lvl();
     let above_zero_lvl = get_above_zero(final_snapshot, zero_lvl);
     let clusters = clusterize_snapshot(&above_zero_lvl, cutoff);
-    let clusters_selected = filter_clusters(&clusters);
+    let clusters_selected = get_cluster_counts(&clusters)
+        .iter()
+        .filter(|(_, &cnt)| cnt >= RIM_THRESHOLD)
+        .map(|(&id, _)| id)
+        .collect::<HashSet<_>>();
     let indices = clusters
         .get_property("cluster")
         .iter()
@@ -83,15 +148,20 @@ fn rim_snapshot(
     copy_snapshot_with_indices(&clusters, indices)
 }
 
-fn get_center_pos(cluster_xyz_path: &Path) -> Result<Vector2<f64>> {
-    let reader = File::open(cluster_xyz_path)
+fn get_rim_atoms(snap: &DumpSnapshot) -> Vec<Atom> {
+    izip!(
+        snap.get_property("x").iter().copied(),
+        snap.get_property("y").iter().copied(),
+        snap.get_property("type").iter().copied(),
+    )
+    .map(|(x, y, atype)| Atom::new(Point2::from([x as f32, y as f32]), atype as usize))
+    .collect()
+}
+
+fn get_center_pos(path: &Path) -> Result<Point2> {
+    let reader = File::open(path)
         .map(BufReader::new)
-        .with_context(|| {
-            format!(
-                "Failed to read cluster trajectory from {}",
-                cluster_xyz_path.display()
-            )
-        })?;
+        .with_context(|| format!("Failed to read cluster trajectory from {}", path.display()))?;
     let Some(Ok(line)) = reader.lines().nth(CLUSTER_TRAJECTORY_LINE - 1) else {
         bail!("Failed to read line {CLUSTER_TRAJECTORY_LINE} from cluster trajectory");
     };
@@ -99,96 +169,84 @@ fn get_center_pos(cluster_xyz_path: &Path) -> Result<Vector2<f64>> {
     let Some((Ok(x), Ok(y))) = iter.next().zip(iter.next()) else {
         bail!("Failed to parse XY coordinates in the line {CLUSTER_TRAJECTORY_LINE}");
     };
-    Ok(vector![x, y])
+    Ok(Point2::from([x as f32, y as f32]))
 }
 
-fn rim_atom_rotation(v: Vector2<f64>) -> f64 {
-    let angle = (-v.y / v.magnitude()).acos().to_degrees();
-    if v.x > 0.0 {
-        angle
-    } else {
-        360.0 - angle
-    }
-}
-
-fn get_angle_distribution(snap: &DumpSnapshot, center: Vector2<f64>) -> Data {
-    let mut radii = [const { Vec::new() }; DATA_LEN];
-    for coord in snap
-        .get_coordinates()
-        .into_iter()
-        .map(|xyz| vector![xyz.x, xyz.y] - center)
-    {
-        let angle = rim_atom_rotation(coord);
-        let index = (angle / ANGLE_ROTATION as f64) as usize;
-        let radius = coord.magnitude();
-        radii[index].push(radius);
-    }
-    radii
-}
-
-fn get_data(radii: [Vec<f64>; DATA_LEN]) -> [[f64; 5]; DATA_LEN] {
-    let mut data = [const { [0.0; 5] }; DATA_LEN];
-    for (i, values) in radii.iter().enumerate() {
-        let (avg, std) = get_avg_with_std(values).unwrap();
-        let cnt = values.len() as f64;
-        data[i] = [
-            (i * ANGLE_ROTATION + ANGLE_ROTATION / 2) as f64,
-            cnt,
-            avg,
-            cnt * avg,
-            std,
-        ]
-    }
-    data
-}
-
-fn parse_run_dir(dir: &Path, cutoff: f64) -> Result<Data> {
+fn get_rim_values(dir: &Path, cutoff: f64) -> Result<RimValues> {
     let dump_input = DumpFile::read(&dir.join("dump.initial"), &[])?;
     let snap_input = dump_input.get_snapshots()[0];
     let dump_final = DumpFile::read(&dir.join("dump.final_no_cluster"), &[])?;
     let snap_final = dump_final.get_snapshots()[0];
+    let snap_rim = get_rim_snapshot(snap_input, snap_final, cutoff);
+    let atoms = get_rim_atoms(&snap_rim);
+    let dump_rim = DumpFile::new(vec![snap_rim]);
+    dump_rim.save(&dir.join("dump.rim"))?;
     let center =
         get_center_pos(&dir.join("cluster_xyz.txt")).context("Failed to get center position")?;
-    info!("cluster center: {center}");
-    let rim = rim_snapshot(snap_input, snap_final, cutoff);
-    info!("rim count: {}", rim.atoms_count);
-    let radii = get_angle_distribution(&rim, center);
-    let dump_rim = DumpFile::new(vec![rim]);
-    dump_rim.save(&dir.join("dump.rim"))?;
-    Ok(radii)
+    info!("cluster center: {center:?}");
+    Ok(RimValues::new(atoms, center))
 }
 
-fn run_single(dir: &Path, cutoff: f64) -> Result<Data> {
+fn rim_atom_rotation(v: Point2) -> f32 {
+    let angle = (-v.y / v.length()).acos();
+    if v.x > 0.0 {
+        angle
+    } else {
+        2.0 * f32::consts::PI - angle
+    }
+}
+
+fn point_rotation(v: Point2) -> f32 {
+    rim_atom_rotation(v).to_degrees()
+}
+
+fn parse_run_dir(dir: &Path, cutoff: f64) -> Result<Sectors> {
+    let rim_values = get_rim_values(dir, cutoff)?;
+    info!("rim count: {}", rim_values.atoms.len());
+    Ok(rim_values.get_sectors())
+}
+
+fn run_single(dir: &Path, cutoff: f64) -> Result<Sectors> {
     parse_run_dir(dir, cutoff)
 }
 
-fn run_all(results_dir: &Path, cutoff: f64) -> Result<Data> {
-    let mut radii = [const { Vec::new() }; DATA_LEN];
-    for run_dir in get_runs_dirs(results_dir)? {
-        for (i, r) in parse_run_dir(&run_dir.path, cutoff)?.iter().enumerate() {
-            radii[i].extend(r);
-        }
-    }
-    Ok(radii)
+fn run_multi(dir: &Path, threads: usize, cutoff: f64) -> Result<Sectors> {
+    Ok(
+        process_results_dir(dir, threads, |dir| parse_run_dir(&dir.path, cutoff))?
+            .into_iter()
+            .map(|(_, sectors)| sectors)
+            .reduce(|mut acc, sectors| {
+                zip(acc.iter_mut(), sectors).for_each(|(a, b)| {
+                    a.mass.extend(b.mass);
+                    a.radius.extend(b.radius);
+                });
+                acc
+            })
+            .unwrap(),
+    )
 }
 
 fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
-    let radii = match cli.command {
-        Commands::Single { dir } => run_single(&dir, cli.cutoff),
-        Commands::All { dir } => run_all(&dir, cli.cutoff),
+    let values = match cli.command {
+        Commands::Single(args) => run_single(&args.run_dir, cli.cutoff),
+        Commands::Multi(args) => run_multi(&args.results_dir, args.threads, cli.cutoff),
     }?;
-    let data = get_data(radii);
-    info!("data: {data:?}");
-    for row in data {
-        let line = row
-            .iter()
-            .map(|n| format!("{n:10.4}"))
-            .collect::<Vec<String>>()
-            .join(" ");
-        println!("{line}");
-    }
+    let table = values
+        .into_iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let (m_avg, m_std) = row.mass.into_iter().avg_with_std().unwrap();
+            let (r_avg, r_std) = row.radius.into_iter().avg_with_std().unwrap();
+            let vals = [m_avg, m_std, r_avg, r_std]
+                .into_iter()
+                .map(|x| format!("{x:10.4}"))
+                .join("\t");
+            format!("{}\t{}", i * ANGLE_ROTATION, vals)
+        })
+        .join("\n");
+    println!("# φ Σ(m) σ(m) Σ(r) σ(r)\n{table}");
     Ok(())
 }
 
@@ -200,13 +258,13 @@ mod tests {
 
     #[test]
     fn rim_atom_rotation_test() {
-        assert_float_absolute_eq!(rim_atom_rotation(vector![1.0, -1.0]), 45.0, 1e-6);
-        assert_float_absolute_eq!(rim_atom_rotation(vector![1.0, 0.0]), 90.0, 1e-6);
-        assert_float_absolute_eq!(rim_atom_rotation(vector![1.0, 1.0]), 135.0, 1e-6);
-        assert_float_absolute_eq!(rim_atom_rotation(vector![0.0, 1.0]), 180.0, 1e-6);
-        assert_float_absolute_eq!(rim_atom_rotation(vector![-1.0, 1.0]), 225.0, 1e-6);
-        assert_float_absolute_eq!(rim_atom_rotation(vector![-1.0, 0.0]), 270.0, 1e-6);
-        assert_float_absolute_eq!(rim_atom_rotation(vector![-1.0, -1.0]), 315.0, 1e-6);
-        assert_float_absolute_eq!(rim_atom_rotation(vector![0.0, -1.0]), 360.0, 1e-6);
+        assert_float_absolute_eq!(point_rotation(Point2::from([1.0, -1.0])), 45.0, 1e-4);
+        assert_float_absolute_eq!(point_rotation(Point2::from([1.0, 0.0])), 90.0, 1e-4);
+        assert_float_absolute_eq!(point_rotation(Point2::from([1.0, 1.0])), 135.0, 1e-4);
+        assert_float_absolute_eq!(point_rotation(Point2::from([0.0, 1.0])), 180.0, 1e-4);
+        assert_float_absolute_eq!(point_rotation(Point2::from([-1.0, 1.0])), 225.0, 1e-4);
+        assert_float_absolute_eq!(point_rotation(Point2::from([-1.0, 0.0])), 270.0, 1e-4);
+        assert_float_absolute_eq!(point_rotation(Point2::from([-1.0, -1.0])), 315.0, 1e-4);
+        assert_float_absolute_eq!(point_rotation(Point2::from([0.0, -1.0])), 360.0, 1e-4);
     }
 }
