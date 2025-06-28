@@ -104,6 +104,7 @@ impl RimValues {
 struct Sector {
     radius: Vec<f32>,
     mass: Vec<f32>,
+    count: Vec<usize>,
 }
 
 impl Sector {
@@ -111,6 +112,7 @@ impl Sector {
         Self {
             radius: atoms.iter().map(|a| a.coords.length()).collect(),
             mass: atoms.iter().map(|a| MASS[a.atype]).collect(),
+            count: vec![atoms.len()],
         }
     }
 }
@@ -219,6 +221,7 @@ fn run_multi(dir: &Path, threads: usize, cutoff: f64) -> Result<Sectors> {
                 zip(acc.iter_mut(), sectors).for_each(|(a, b)| {
                     a.mass.extend(b.mass);
                     a.radius.extend(b.radius);
+                    a.count.extend(b.count);
                 });
                 acc
             })
@@ -237,16 +240,22 @@ fn main() -> Result<()> {
         .into_iter()
         .enumerate()
         .map(|(i, row)| {
+            let (n_avg, n_std) = row
+                .count
+                .into_iter()
+                .map(|x| x as f64)
+                .avg_with_std()
+                .unwrap();
             let (m_avg, m_std) = row.mass.into_iter().avg_with_std().unwrap();
             let (r_avg, r_std) = row.radius.into_iter().avg_with_std().unwrap();
-            let vals = [m_avg, m_std, r_avg, r_std]
+            let vals = [n_avg, n_std, m_avg, m_std, r_avg, r_std]
                 .into_iter()
                 .map(|x| format!("{x:10.4}"))
                 .join("\t");
             format!("{}\t{}", i * ANGLE_ROTATION, vals)
         })
         .join("\n");
-    println!("# φ Σ(m) σ(m) Σ(r) σ(r)\n{table}");
+    println!("# φ N σ(N) m σ(m) r σ(r)\n{table}");
     Ok(())
 }
 
