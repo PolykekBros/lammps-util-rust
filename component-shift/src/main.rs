@@ -71,8 +71,8 @@ fn main() -> Result<()> {
     let dump_final = DumpFile::read(&cli.dump_final, &[])?;
     let final_snapshot = dump_final.get_snapshots()[0];
 
-    let coords = get_coords(initial_snapshot, final_snapshot);
-    let (cnt, sum, sum2) = get_coords_shift(&coords.0, &coords.1);
+    let (input_coords, final_coords) = get_coords(initial_snapshot, final_snapshot);
+    let (cnt, sum, sum2) = get_coords_shift(&input_coords, &final_coords);
     println!("{cnt}");
     println!("{} {} {}", sum.x, sum.y, sum.z);
     println!("{} {} {}", sum2.x, sum2.y, sum2.z);
