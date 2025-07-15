@@ -10,5 +10,4 @@ itertools = { workspace=true }
 env_logger = { workspace=true }
 anyhow = { workspace = true }
 clap = { workspace = true }
-assert_float_eq = "1.1.4"
-geomutil_util = "0.1.2"
+geomutil_util = { workspace = true }

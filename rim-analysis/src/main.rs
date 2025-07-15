@@ -89,7 +89,8 @@ impl RimValues {
                 self.atoms
                     .iter()
                     .filter(|a| {
-                        ((point_rotation(a.coords) / ANGLE_ROTATION as f32).floor() as usize)
+                        ((a.coords.polar_angle().to_degrees() / ANGLE_ROTATION as f32).floor()
+                            as usize)
                             .clamp(0, SECTORS_LEN)
                             == i
                     })
@@ -189,19 +190,6 @@ fn get_rim_values(dir: &Path, cutoff: f64) -> Result<RimValues> {
     Ok(RimValues::new(atoms, center))
 }
 
-fn rim_atom_rotation(v: Point2) -> f32 {
-    let angle = (-v.y / v.length()).acos();
-    if v.x > 0.0 {
-        angle
-    } else {
-        2.0 * f32::consts::PI - angle
-    }
-}
-
-fn point_rotation(v: Point2) -> f32 {
-    rim_atom_rotation(v).to_degrees()
-}
-
 fn parse_run_dir(dir: &Path, cutoff: f64) -> Result<Sectors> {
     let rim_values = get_rim_values(dir, cutoff)?;
     info!("rim count: {}", rim_values.atoms.len());
@@ -257,23 +245,4 @@ fn main() -> Result<()> {
         .join("\n");
     println!("# φ N σ(N) m σ(m) r σ(r)\n{table}");
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use assert_float_eq::assert_float_absolute_eq;
-
-    use super::*; // Import the `add` function from the parent module
-
-    #[test]
-    fn rim_atom_rotation_test() {
-        assert_float_absolute_eq!(point_rotation(Point2::from([1.0, -1.0])), 45.0, 1e-4);
-        assert_float_absolute_eq!(point_rotation(Point2::from([1.0, 0.0])), 90.0, 1e-4);
-        assert_float_absolute_eq!(point_rotation(Point2::from([1.0, 1.0])), 135.0, 1e-4);
-        assert_float_absolute_eq!(point_rotation(Point2::from([0.0, 1.0])), 180.0, 1e-4);
-        assert_float_absolute_eq!(point_rotation(Point2::from([-1.0, 1.0])), 225.0, 1e-4);
-        assert_float_absolute_eq!(point_rotation(Point2::from([-1.0, 0.0])), 270.0, 1e-4);
-        assert_float_absolute_eq!(point_rotation(Point2::from([-1.0, -1.0])), 315.0, 1e-4);
-        assert_float_absolute_eq!(point_rotation(Point2::from([0.0, -1.0])), 360.0, 1e-4);
-    }
 }
