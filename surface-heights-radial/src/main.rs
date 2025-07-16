@@ -8,7 +8,6 @@ use std::{
 };
 
 mod parser;
-use parser::TokenIterator;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -37,13 +36,33 @@ struct SurfaceData {
 
 impl SurfaceData {
     fn from_file(p: &Path) -> Result<SurfaceData> {
-        let file = File::open(p).with_context(|| format!("file: {}:", p.to_string_lossy()))?;
-        let token_iter = TokenIterator::new(BufReader::new(file).lines());
+        let file = File::open(p).with_context(|| format!("file: {}:", p.display()))?;
+        let mut token_iter = parser::Parser::new(BufReader::new(file).lines());
+        let bbox = {
+            let a = [
+                token_iter
+                    .next_parse::<f32>()
+                    .with_context(|| "Bounding box")??,
+                token_iter
+                    .next_parse::<f32>()
+                    .with_context(|| "Bounding box")??,
+            ];
+            let b = [
+                token_iter
+                    .next_parse::<f32>()
+                    .with_context(|| "Bounding box")??,
+                token_iter
+                    .next_parse::<f32>()
+                    .with_context(|| "Bounding box")??,
+            ];
+            BoundingBox::new(a.into(), b.into())
+        };
         Err(anyhow!(""))
     }
 }
 
-fn main() {
+fn main() -> Result<()> {
     let cli = Cli::parse();
-    let surface_data = SurfaceData::from_file(&cli.surface_coords_path);
+    let surface_data = SurfaceData::from_file(&cli.surface_coords_path)?;
+    Ok(())
 }

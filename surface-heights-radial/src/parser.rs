@@ -1,8 +1,8 @@
 use std::{
     error, fmt,
-    io::{self, BufRead, Lines},
-    iter::Enumerate,
-    str::FromStr,
+    io::{self},
+    iter::{self},
+    str,
 };
 
 #[derive(Debug)]
@@ -12,10 +12,10 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    fn new(line_number: usize, source: Box<dyn error::Error>) -> Self {
+    fn new(line_number: usize, source: impl error::Error + 'static) -> Self {
         Self {
             line_number,
-            source,
+            source: source.into(),
         }
     }
 }
@@ -32,94 +32,68 @@ impl error::Error for ParseError {
     }
 }
 
+type ParseResult<T> = Result<T, ParseError>;
+
 #[derive(Debug)]
 pub struct Token {
     value: String,
-    line_index: usize,
+    line_number: usize,
 }
 
 impl Token {
-    fn new(value: String, line_index: usize) -> Self {
-        Self { value, line_index }
+    fn new(value: String, line_number: usize) -> Self {
+        Self { value, line_number }
     }
 }
 
-impl TryInto<T> for Token
-where
-    T: FromStr<Err: error::Error + 'static>,
-{
-    type Error = ParseError;
-    fn try_into(self) -> Result<U, Self::Error> {
-        self.value
-            .parse::<T>()
-            .map_err(|e| ParseError::new(self.line_index, e.into()))
-    }
-}
-
-#[derive(Debug)]
-pub struct TokenIterator<B> {
-    lines: Enumerate<Lines<B>>,
-    tokens: std::vec::IntoIter<String>,
-    line_index: usize,
-}
-
-impl<B: BufRead> TokenIterator<B> {
-    pub fn new(lines: Lines<B>) -> Self {
-        Self {
-            lines: lines.enumerate(),
-            tokens: Default::default(),
-            line_index: 0,
-        }
-    }
-}
-
-impl<B: BufRead> Iterator for TokenIterator<B> {
-    type Item = Result<Token, ParseError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.tokens.next() {
-            Some(s) => Some(Ok(Token::new(s, self.line_index))),
-            None => match self.lines.next()? {
-                (i, Ok(s)) => {
-                    self.line_index = 1;
-                    self.tokens = s
-                        .split_whitespace()
-                        .map(str::to_string)
-                        .collect::<Vec<_>>()
-                        .into_iter();
-                    self.next()
-                }
-                (i, Err(e)) => Some(Err(ParseError::new(i, e.into()))),
-            },
-        }
-    }
-}
-
-pub struct Parser<B> {
-    iter: TokenIterator<B>,
-}
-
-impl<B: BufRead> Parser<B> {
-    pub fn new(lines: Lines<B>) -> Self {
-        Self {
-            iter: TokenIterator::new(lines),
-        }
-    }
-
-    pub fn next<T>(&mut self) -> Option<Result<T, ParseError>>
-    where
-        T: FromStr<Err: error::Error + 'static>,
-    {
-        Some(
-            self.iter
-                .next()?
-                .and_then(|(i, s)| s.parse::<T>().map_err(|e| ParseError::new(i, e.into()))),
-        )
+impl<'a> From<(usize, &'a str)> for Token {
+    fn from(value: (usize, &'a str)) -> Self {
+        Token::new(value.1.into(), value.0)
     }
 }
 
 fn token_iterator(
     lines: impl IntoIterator<Item = io::Result<String>>,
-) -> impl Iterator<Item = Result<String, ParseError>> {
-    lines.into_iter().enumerate().map(|(i, r)| (i + 1, r))
+) -> impl Iterator<Item = ParseResult<Token>> {
+    iter::zip(1.., lines).flat_map(|(line_number, str)| match str {
+        Ok(str) => str
+            .split_whitespace()
+            .map(|s| Ok((line_number, s).into()))
+            .collect::<Vec<_>>(),
+        Err(err) => vec![Err(ParseError::new(line_number, err))],
+    })
+}
+
+pub struct Parser {
+    iter: Box<dyn Iterator<Item = ParseResult<Token>>>,
+}
+
+impl Parser {
+    pub fn new(lines: impl IntoIterator<Item = io::Result<String>> + 'static) -> Self {
+        Self {
+            iter: Box::new(token_iterator(lines)),
+        }
+    }
+
+    pub fn next_parse<T>(&mut self) -> Option<ParseResult<T>>
+    where
+        T: str::FromStr<Err: error::Error + 'static>,
+    {
+        self.iter.next().map(|token| {
+            token.and_then(|token| {
+                token
+                    .value
+                    .parse::<T>()
+                    .map_err(|err| ParseError::new(token.line_number, err))
+            })
+        })
+    }
+}
+
+impl Iterator for Parser {
+    type Item = ParseResult<String>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|token| token.map(|token| token.value))
+    }
 }
