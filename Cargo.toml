@@ -34,4 +34,4 @@ plotters = "0.3.7"
 log = "0.4.25"
 env_logger = "0.11.6"
 rayon = "1.10.0"
-geomutil_util = { git = "https://github.com/denisstrizhkin/geomutil-rust.git", version = "0.1.2", rev="d2bb22c3688edf5deff2c1a59cb8967bc901071d" }
+geomutil_util = { git = "https://github.com/denisstrizhkin/geomutil-rust.git", version = "0.1.2", rev="e2f1a6e6ff390eaca59567ec7af81f088df78e98" }

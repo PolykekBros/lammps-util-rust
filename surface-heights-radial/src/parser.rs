@@ -2,17 +2,17 @@ use std::{
     error, fmt,
     io::{self},
     iter::{self},
-    str,
+    marker, str,
 };
 
 #[derive(Debug)]
 pub struct ParseError {
     line_number: usize,
-    source: Box<dyn error::Error>,
+    source: Box<dyn error::Error + Send + Sync + 'static>,
 }
 
 impl ParseError {
-    fn new(line_number: usize, source: impl error::Error + 'static) -> Self {
+    fn new(line_number: usize, source: impl error::Error + Send + Sync + 'static) -> Self {
         Self {
             line_number,
             source: source.into(),
@@ -75,9 +75,9 @@ impl Parser {
         }
     }
 
-    pub fn next_parse<T>(&mut self) -> Option<ParseResult<T>>
+    pub fn next<T>(&mut self) -> Option<ParseResult<T>>
     where
-        T: str::FromStr<Err: error::Error + 'static>,
+        T: str::FromStr<Err: error::Error + Send + Sync + 'static>,
     {
         self.iter.next().map(|token| {
             token.and_then(|token| {
@@ -88,12 +88,26 @@ impl Parser {
             })
         })
     }
+
+    pub fn into_iter<'a, T>(&'a mut self) -> ParserIterator<'a, T> {
+        ParserIterator {
+            parser: self,
+            marker: Default::default(),
+        }
+    }
 }
 
-impl Iterator for Parser {
-    type Item = ParseResult<String>;
+pub struct ParserIterator<'a, T> {
+    parser: &'a mut Parser,
+    marker: marker::PhantomData<T>,
+}
 
+impl<'a, T> Iterator for ParserIterator<'a, T>
+where
+    T: str::FromStr<Err: error::Error + Send + Sync + 'static>,
+{
+    type Item = ParseResult<T>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|token| token.map(|token| token.value))
+        self.parser.next()
     }
 }

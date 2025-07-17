@@ -1,6 +1,6 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
-use geomutil_util::Point2;
+use geomutil_util::{BoundingBox2, Point2};
 use std::{
     fs::File,
     io::{BufRead, BufReader},
@@ -15,22 +15,8 @@ struct Cli {
     surface_coords_path: PathBuf,
 }
 
-struct BoundingBox {
-    min: Point2,
-    max: Point2,
-}
-
-impl BoundingBox {
-    fn new(a: Point2, b: Point2) -> Self {
-        Self {
-            min: Point2::from([a.x.min(b.x), a.y.min(b.y)]),
-            max: Point2::from([a.x.max(b.x), a.y.max(b.y)]),
-        }
-    }
-}
-
 struct SurfaceData {
-    bbox: BoundingBox,
+    bbox: BoundingBox2,
     data: Vec<Vec<f32>>,
 }
 
@@ -38,26 +24,33 @@ impl SurfaceData {
     fn from_file(p: &Path) -> Result<SurfaceData> {
         let file = File::open(p).with_context(|| format!("file: {}:", p.display()))?;
         let mut token_iter = parser::Parser::new(BufReader::new(file).lines());
-        let bbox = {
-            let a = [
-                token_iter
-                    .next_parse::<f32>()
-                    .with_context(|| "Bounding box")??,
-                token_iter
-                    .next_parse::<f32>()
-                    .with_context(|| "Bounding box")??,
-            ];
-            let b = [
-                token_iter
-                    .next_parse::<f32>()
-                    .with_context(|| "Bounding box")??,
-                token_iter
-                    .next_parse::<f32>()
-                    .with_context(|| "Bounding box")??,
-            ];
-            BoundingBox::new(a.into(), b.into())
+        let bbox = (|| {
+            let bounds = token_iter
+                .into_iter::<f32>()
+                .take(4)
+                .collect::<Result<Vec<_>, _>>()?;
+            match bounds.len() {
+                4 => Ok(([bounds[0], bounds[1]].into(), [bounds[2], bounds[3]].into()).into()),
+                _ => Err(anyhow!("missing")),
+            }
+        })()
+        .with_context(|| "parsing bounding box:")?;
+        let values = token_iter
+            .into_iter::<f32>()
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| "parsing surface data:")?;
+        let dim = (values.len() as f32).sqrt().round() as usize;
+        let data = {
+            let mut data = vec![Default::default(); dim];
+            for (i, data) in data.iter_mut().enumerate() {
+                *data = values
+                    .get(i * dim..(i + 1) * dim)
+                    .with_context(|| "missing surface data")?
+                    .into();
+            }
+            data
         };
-        Err(anyhow!(""))
+        Ok(SurfaceData { bbox, data })
     }
 }
 
