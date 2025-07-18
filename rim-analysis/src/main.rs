@@ -231,7 +231,7 @@ fn main() -> Result<()> {
             let (n_avg, n_std) = row
                 .count
                 .into_iter()
-                .map(|x| x as f64)
+                .map(|x| x as f32)
                 .avg_with_std()
                 .unwrap_or_default();
             let (m_avg, m_std) = row.mass.into_iter().avg_with_std().unwrap_or_default();
