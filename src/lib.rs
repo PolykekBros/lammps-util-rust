@@ -19,7 +19,7 @@ pub use dump_snapshot::{
     copy_snapshot, copy_snapshot_with_indices, copy_snapshot_with_indices_with_keys,
     copy_snapshot_with_keys, DumpSnapshot, SymBox,
 };
-pub use math::{range_f32, range_f64, IteratorAvg};
+pub use math::{range, IteratorAvg};
 pub use xyz::{check_cutoff, XYZ};
 
 pub struct RunDir {

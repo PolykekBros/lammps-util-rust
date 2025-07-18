@@ -97,6 +97,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_float_eq"
+version = "1.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10d2119f741b79fe9907f5396d19bffcb46568cfcc315e78677d731972ac7085"
+
+[[package]]
 name = "autocfg"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -716,6 +722,7 @@ name = "lammps-util-rust"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "assert_float_eq",
  "itertools",
  "kd-tree",
  "log",
@@ -1281,6 +1288,7 @@ dependencies = [
  "anyhow",
  "clap",
  "geomutil_util 0.1.2 (git+https://github.com/denisstrizhkin/geomutil-rust.git?rev=e2f1a6e6ff390eaca59567ec7af81f088df78e98)",
+ "lammps-util-rust",
 ]
 
 [[package]]
