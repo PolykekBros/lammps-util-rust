@@ -236,13 +236,13 @@ fn main() -> Result<()> {
                 .unwrap_or_default();
             let (m_avg, m_std) = row.mass.into_iter().avg_with_std().unwrap_or_default();
             let (r_avg, r_std) = row.radius.into_iter().avg_with_std().unwrap_or_default();
-            let vals = [n_avg, n_std, m_avg, m_std, r_avg, r_std]
+            let vals = [n_avg, n_std, m_avg, m_std, r_avg, r_std, r_avg * n_avg]
                 .into_iter()
                 .map(|x| format!("{x:10.4}"))
                 .join("\t");
             format!("{}\t{}", i * ANGLE_ROTATION, vals)
         })
         .join("\n");
-    println!("# φ N σ(N) m σ(m) r σ(r)\n{table}");
+    println!("# φ N σ(N) m σ(m) r σ(r) r*N\n{table}");
     Ok(())
 }
