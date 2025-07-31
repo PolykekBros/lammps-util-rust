@@ -1,7 +1,7 @@
 use anyhow::Result;
 use colorgrad::Gradient;
 use geomutil_util::Point2;
-use lammps_util_rust::range_f32;
+use lammps_util_rust::range;
 use plotters::{prelude::*, style::BLACK};
 
 use crate::SurfaceValues;
@@ -92,7 +92,7 @@ impl<T: Gradient> Colorbar<T> {
             .draw()
             .unwrap();
         let plotting_area = chart_context.plotting_area();
-        range_f32(min, max, 256).iter().for_each(|&value| {
+        range::f32(min, max, 256).for_each(|value| {
             let color = self.color(value);
             let rectangle =
                 Rectangle::new([(0.0, value), (1.0, value + step)], filled_style(color));

@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use colorgrad::preset::viridis;
 use geomutil_util::{Point2, Point3};
-use lammps_util_rust::{process_results_dir, DumpFile, XYZ};
+use lammps_util_rust::{process_results_dir, DumpFile, IteratorAvg, XYZ};
 use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, IntoDrawingArea},
@@ -11,7 +11,6 @@ use plotters::{
 use std::{
     fs::File,
     io::{BufWriter, Write},
-    iter::zip,
     path::{Path, PathBuf},
 };
 
@@ -227,25 +226,46 @@ fn analyze_single_run(path: &Path, square_width: f64, zero_lvl: f64) -> Result<S
     Ok(values)
 }
 
+fn avg_surface_values(values: &[SurfaceValues]) -> Option<(SurfaceValues, SurfaceValues)> {
+    if values.is_empty() {
+        return None;
+    }
+    let data = (0..values[0].data.len())
+        .map(|i| {
+            values
+                .iter()
+                .map(|values| values.data[i])
+                .avg_with_std()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    Some((
+        SurfaceValues {
+            data: data.iter().map(|(avg, _)| avg).copied().collect(),
+            domain: values[0].domain.clone(),
+            ..values[0]
+        },
+        SurfaceValues {
+            data: data.iter().map(|(_, std)| std).copied().collect(),
+            domain: values[0].domain.clone(),
+            ..values[0]
+        },
+    ))
+}
+
 fn analyze_results_dir(dir: &Path, threads: usize, square_width: f64, zero_lvl: f64) -> Result<()> {
     let values = process_results_dir(dir, threads, move |dir| {
         analyze_single_run(&dir.path, square_width, zero_lvl)
     })?;
-    let cnt = values.len();
-    let sum = values
-        .into_iter()
-        .map(|(_, values)| values)
-        .reduce(|mut sum, values| {
-            zip(&mut sum.data, values.data).for_each(|(a, b)| *a += b);
-            sum
-        })
-        .map(|mut sum| {
-            sum.data.iter_mut().for_each(|a| *a /= cnt as f32);
-            sum
-        });
-    if let Some(sum) = sum {
-        save_results(dir, &sum)?;
-    }
+    let (avg, std) = avg_surface_values(
+        &values
+            .into_iter()
+            .map(|(_, values)| values)
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    save_results(dir, &avg)?;
+    write_surface_coords(&dir.join("surface_coords_errors.txt"), &std)?;
     Ok(())
 }
 
