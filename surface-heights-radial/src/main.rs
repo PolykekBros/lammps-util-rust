@@ -92,8 +92,17 @@ impl SurfaceData {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let surface_data = SurfaceData::from_file(&cli.surface_coords_path)?;
-    surface_data
-        .radial_heights_distrib([0.0, 0.0].into())
-        .for_each(|(angle, x)| println!("{angle}\t{x}"));
+    let errors_data = SurfaceData::from_file(&cli.surface_coords_path.with_file_name({
+        let mut name = cli.surface_coords_path.file_stem().unwrap().to_owned();
+        name.push("_errors");
+        name.push(cli.surface_coords_path.extension().unwrap());
+        name
+    }))?;
+    let center = Point2::from([0.0, 0.0]);
+    iter::zip(
+        surface_data.radial_heights_distrib(center),
+        errors_data.radial_heights_distrib(center),
+    )
+    .for_each(|((angle, x), (_, err))| println!("{angle}\t{x}\t{err}"));
     Ok(())
 }
