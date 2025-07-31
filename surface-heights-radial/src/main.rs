@@ -94,7 +94,7 @@ fn main() -> Result<()> {
     let surface_data = SurfaceData::from_file(&cli.surface_coords_path)?;
     let errors_data = SurfaceData::from_file(&cli.surface_coords_path.with_file_name({
         let mut name = cli.surface_coords_path.file_stem().unwrap().to_owned();
-        name.push("_errors");
+        name.push("_errors.");
         name.push(cli.surface_coords_path.extension().unwrap());
         name
     }))?;
