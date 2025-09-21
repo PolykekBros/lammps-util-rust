@@ -1,7 +1,7 @@
 use clap::Parser;
 use geomutil::{
     geomutil_triangulation::alpha_shape_2d,
-    geomutil_util::{points_bounding_box, Point2D, Shape2D},
+    geomutil_util::{BoundingBox2, Point2, Shape2D},
 };
 use lammps_util_rust::{DumpFile, DumpSnapshot};
 use log::info;
@@ -31,13 +31,13 @@ struct Cli {
 
 #[derive(Default, Clone)]
 struct Particle {
-    xy: Point2D,
+    xy: Point2,
     _id: usize,
     ptype: usize,
 }
 
 impl Particle {
-    fn new(xy: Point2D, id: usize, ptype: usize) -> Self {
+    fn new(xy: Point2, id: usize, ptype: usize) -> Self {
         Self { xy, _id: id, ptype }
     }
 }
@@ -51,12 +51,11 @@ struct Slice {
 }
 
 impl Slice {
-    fn bounding_box(&self) -> (Point2D, Point2D) {
-        let points = self.points();
-        points_bounding_box(&points).unwrap()
+    fn bounding_box(&self) -> BoundingBox2 {
+        Point2::bounding_box(self.points()).unwrap()
     }
 
-    fn points(&self) -> Vec<Point2D> {
+    fn points(&self) -> Vec<Point2> {
         self.particles.iter().map(|p| p.xy).collect()
     }
 }
@@ -86,7 +85,7 @@ fn get_slices(dump: &DumpSnapshot, delta: f64) -> Vec<Slice> {
             slices[i].z_max = slices[i].z_min + delta;
         }
         slices[i].particles.push(Particle::new(
-            Point2D::new(c.x as f32, c.y as f32),
+            Point2::from([c.x as f32, c.y as f32]),
             c.index(),
             types[c.index()] as usize,
         ));
@@ -94,7 +93,7 @@ fn get_slices(dump: &DumpSnapshot, delta: f64) -> Vec<Slice> {
     for slice in slices.iter_mut() {
         let points = &slice.points();
         info!("before shape, points.len: {}", points.len());
-        slice.shapes = alpha_shape_2d(&slice.points(), 0.5).unwrap();
+        slice.shapes = alpha_shape_2d(slice.points().into_iter(), 0.5).unwrap();
         info!("after shape");
     }
     slices
@@ -105,18 +104,18 @@ fn plot_slices(out_dir: &Path, slices: &[Slice]) {
         let path = out_dir.join(format!("slice_{}.png", i));
         let root = BitMapBackend::new(&path, (800, 800)).into_drawing_area();
         root.fill(&WHITE).unwrap();
-        let (low_boundary, up_boundary) = slice.bounding_box();
+        let bbox = slice.bounding_box();
         let mut chart = ChartBuilder::on(&root)
             .margin(10)
             .build_cartesian_2d(
-                low_boundary.x - 1.0..up_boundary.x + 1.0,
-                low_boundary.y - 1.0..up_boundary.y + 1.0,
+                bbox.lower().x - 1.0..bbox.upper().x + 1.0,
+                bbox.lower().y - 1.0..bbox.upper().y + 1.0,
             )
             .unwrap();
         chart.configure_mesh().draw().unwrap();
         for t in slice.shapes.iter().flat_map(|s| &s.triangles) {
             let line_series = LineSeries::new(
-                vec![t.a.xy(), t.b.xy(), t.c.xy(), t.a.xy()],
+                [t.a, t.b, t.c, t.a].map(|p| (p.x, p.y)),
                 BLACK.stroke_width(1),
             );
             chart.draw_series(line_series).unwrap();
