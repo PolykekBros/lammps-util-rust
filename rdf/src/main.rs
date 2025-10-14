@@ -32,10 +32,9 @@ fn get_bins(cutoff: f64, binsize: f64) -> Vec<f64> {
 fn normalize(rdf: &mut [(f64, f64)], binsize: f64, dump: &DumpSnapshot) {
     let vol = dump.sym_box.volume();
     let num = dump.atoms_count as f64;
-    println!("{}", num);
     let rho = num / vol;
     rdf.iter_mut()
-        .for_each(|(r, n)| *n /= 4.0 * PI as f64 * (r.powi(2)) * binsize * rho);
+        .for_each(|(r, n)| *n /= 4.0 * PI as f64 * (r.powi(2)) * binsize * rho * num);
 }
 
 fn get_rdf(cutoff: f64, binsize: f64, dump: &DumpSnapshot) -> Vec<(f64, f64)> {
