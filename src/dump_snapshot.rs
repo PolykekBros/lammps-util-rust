@@ -24,6 +24,15 @@ pub struct SymBox {
     pub zhi: f64,
 }
 
+impl SymBox {
+    pub fn volume(&self) -> f64 {
+        let dx = self.xhi - self.xlo;
+        let dy = self.yhi - self.ylo;
+        let dz = self.zhi - self.zlo;
+        dx * dy * dz
+    }
+}
+
 #[derive(Clone)]
 pub struct DumpSnapshot {
     pub step: u64,

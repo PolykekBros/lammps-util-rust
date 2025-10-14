@@ -1073,6 +1073,7 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
+ "itertools",
  "kd-tree",
  "lammps-util-rust",
  "log",
