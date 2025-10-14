@@ -388,7 +388,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "env_logger",
- "geomutil",
  "lammps-util-rust",
  "log",
  "plotters",
@@ -563,31 +562,6 @@ dependencies = [
  "cc",
  "libc",
  "pkg-config",
-]
-
-[[package]]
-name = "geomutil"
-version = "0.1.2"
-dependencies = [
- "geomutil_triangulation",
- "geomutil_util 0.1.1",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "geomutil_triangulation"
-version = "0.1.1"
-dependencies = [
- "geomutil_util 0.1.1",
-]
-
-[[package]]
-name = "geomutil_util"
-version = "0.1.1"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1090,6 +1064,18 @@ checksum = "1465873a3dfdaa8ae7cb14b4383657caab0b3e8a0aa9ae8e04b044854c8dfce2"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
+]
+
+[[package]]
+name = "rdf"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "kd-tree",
+ "lammps-util-rust",
+ "log",
 ]
 
 [[package]]

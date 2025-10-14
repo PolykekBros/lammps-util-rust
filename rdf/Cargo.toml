@@ -1,12 +1,12 @@
 [package]
-name = "density-distribution"
+name = "rdf"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 lammps-util-rust = { path = "../"}
 log = { workspace=true }
 env_logger = { workspace=true }
+anyhow = { workspace = true }
 clap = { workspace = true }
-plotters = { workspace = true }
-# geomutil = { path = "/home/denis/Desktop/src/geomutil-rust" }
+kd-tree = { workspace=true }

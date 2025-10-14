@@ -1,8 +1,7 @@
 use kd_tree::KdPoint;
 use nalgebra::Point3;
 use std::{
-    hash::{Hash, Hasher},
-    ops::{Deref, DerefMut},
+    hash::{Hash, Hasher}, iter, ops::{Deref, DerefMut}
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,8 +46,17 @@ impl XYZ {
     pub fn index(&self) -> usize {
         self.1
     }
+
+    pub fn distance_squared(&self, point: &XYZ) -> f64 {
+        iter::zip(self.0.iter(), point.0.iter()).map(|(a, b)| (a - b).powi(2)).sum()
+    }
+
+    pub fn distance(&self, point: &XYZ) -> f64 {
+        self.distance_squared(point).sqrt()
+    }
 }
 
+
 pub fn check_cutoff(a: XYZ, b: XYZ, cutoff: f64) -> bool {
-    nalgebra::distance_squared(&a, &b) <= cutoff * cutoff
+    a.distance_squared(&b) <= cutoff * cutoff
 }

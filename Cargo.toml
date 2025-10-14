@@ -19,7 +19,7 @@ assert_float_eq = { version = "1.1.4", features = ["std"] }
 members = [ "blob", "blob_5", "carbon-structure-analysis",
   "component-shift",
   "crater-analysis",
-  "density-distribution", "detect-sputtered",
+  "density-distribution", "detect-sputtered", "rdf",
   "remove-sputtered",
   "rim-analysis", "sputtered-analysis",
   "surface-analysis", "surface-heights-radial",
