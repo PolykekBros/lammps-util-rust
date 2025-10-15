@@ -45,41 +45,52 @@ fn normalize(
         .collect()
 }
 
-fn get_supercell_coords(coords: &[XYZ], sym_box: &SymBox, cutoff: f64) -> Vec<XYZ> {
-    let mut supercell_coords = coords.to_vec();
+fn get_supercell_coords(coords: &mut Vec<XYZ>, sym_box: &SymBox, cutoff: f64) -> usize {
     let hi = [sym_box.xhi, sym_box.yhi, sym_box.zhi];
     let lo = [sym_box.xlo, sym_box.ylo, sym_box.zlo];
     let shift: [f64; 3] = array::from_fn(|i| hi[i] - lo[i]);
-    (-1..=1)
+    let periods = (-1..=1)
         .flat_map(|px| (-1..=1).map(move |py| (px, py)))
         .flat_map(|(px, py)| (-1..=1).map(move |pz| [px, py, pz]))
         .filter(|periods| periods.iter().any(|&period| period != 0))
-        .for_each(|periods| {
-            let shift: [f64; 3] = array::from_fn(|i| shift[i] * periods[i] as f64);
-            supercell_coords.extend(
-                coords
-                    .iter()
-                    .filter(|atom| {
-                        let flags: [bool; 3] = array::from_fn(|i| match periods[i] {
-                            1 => atom[i] < lo[i] + cutoff,
-                            -1 => atom[i] > hi[i] - cutoff,
-                            _ => true,
-                        });
-                        flags.into_iter().all(|flag| flag)
-                    })
-                    .map(|atom| XYZ::from(array::from_fn(|i| atom[i] + shift[i]), 0)),
-            );
-        });
-    supercell_coords
+        .collect::<Vec<_>>();
+    let shifts = periods
+        .iter()
+        .map(|periods| array::from_fn::<_, 3, _>(|i| shift[i] * periods[i] as f64))
+        .collect::<Vec<_>>();
+    let max_id = coords
+        .iter()
+        .map(|xyz| xyz.index())
+        .max()
+        .unwrap_or_default();
+    let mut id = max_id;
+    for atom_idx in 0..coords.len() {
+        for (period, shift) in iter::zip(&periods, &shifts) {
+            if (0..3).all(|i| match period[i] {
+                1 => coords[atom_idx][i] < lo[i] + cutoff,
+                -1 => coords[atom_idx][i] > hi[i] - cutoff,
+                _ => true,
+            }) {
+                id += 1;
+                coords.push(XYZ::from(
+                    array::from_fn(|i| coords[atom_idx][i] + shift[i]),
+                    id,
+                ));
+            }
+        }
+    }
+    max_id
 }
 
 fn get_rdf(cutoff: f64, n: usize, dump: &DumpSnapshot) -> Vec<(f64, f64)> {
     let bins = get_bins(cutoff, n);
-    let coords = dump.get_coordinates();
-    let supercell_coords = get_supercell_coords(&coords, &dump.sym_box, cutoff);
-    let kdtree = kd_tree::KdTree::build_by_ordered_float(supercell_coords);
-    let rdf = coords
+    let mut coords = dump.get_coordinates();
+    let max_id = get_supercell_coords(&mut coords, &dump.sym_box, cutoff);
+    let kdtree = kd_tree::KdTree::build_by_ordered_float(coords);
+    let rdf = kdtree
+        .items()
         .par_iter()
+        .filter(|atom| atom.index() <= max_id)
         .map(|atom| {
             let d_sq = kdtree
                 .within_radius(atom, cutoff)
