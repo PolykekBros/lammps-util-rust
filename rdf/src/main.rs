@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
 use itertools::Itertools;
-use lammps_util_rust::{DumpFile, DumpSnapshot};
+use lammps_util_rust::{DumpFile, DumpSnapshot, SymBox, XYZ};
 use rayon::prelude::*;
-use std::{f64, iter, path::PathBuf};
+use std::{array, f64, iter, path::PathBuf};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -29,36 +29,71 @@ fn get_bins(cutoff: f64, n: usize) -> Vec<(f64, f64)> {
 }
 
 fn normalize(
-    rdf: impl IntoIterator<Item = ((f64, f64), f64)>,
+    rdf: impl IntoIterator<Item = ((f64, f64), usize)>,
     dump: &DumpSnapshot,
 ) -> Vec<(f64, f64)> {
     let vol = dump.sym_box.volume();
     let num = dump.atoms_count as f64;
     let rho = num / vol;
     rdf.into_iter()
-        .map(|((lo, hi), mut n)| {
+        .map(|((lo, hi), n)| {
             let vshell = 4.0 / 3.0 * f64::consts::PI * (hi.powi(3) - lo.powi(3));
             let nnorm = rho * vshell;
-            n /= nnorm * num;
+            let n = n as f64 / (nnorm * num);
             ((hi + lo) / 2.0, n)
         })
         .collect()
 }
 
+fn get_supercell_coords(coords: &[XYZ], sym_box: &SymBox, cutoff: f64) -> Vec<XYZ> {
+    let mut supercell_coords = coords.to_vec();
+    let hi = [sym_box.xhi, sym_box.yhi, sym_box.zhi];
+    let lo = [sym_box.xlo, sym_box.ylo, sym_box.zlo];
+    let shift: [f64; 3] = array::from_fn(|i| hi[i] - lo[i]);
+    (-1..=1)
+        .flat_map(|px| (-1..=1).map(move |py| (px, py)))
+        .flat_map(|(px, py)| (-1..=1).map(move |pz| [px, py, pz]))
+        .filter(|periods| periods.iter().any(|&period| period != 0))
+        .for_each(|periods| {
+            let shift: [f64; 3] = array::from_fn(|i| shift[i] * periods[i] as f64);
+            supercell_coords.extend(
+                coords
+                    .iter()
+                    .filter(|atom| {
+                        let flags: [bool; 3] = array::from_fn(|i| match periods[i] {
+                            1 => atom[i] < lo[i] + cutoff,
+                            -1 => atom[i] > hi[i] - cutoff,
+                            _ => true,
+                        });
+                        flags.into_iter().all(|flag| flag)
+                    })
+                    .map(|atom| XYZ::from(array::from_fn(|i| atom[i] + shift[i]), 0)),
+            );
+        });
+    supercell_coords
+}
+
 fn get_rdf(cutoff: f64, n: usize, dump: &DumpSnapshot) -> Vec<(f64, f64)> {
     let bins = get_bins(cutoff, n);
     let coords = dump.get_coordinates();
-    let kdtree = kd_tree::KdTree::build_by_ordered_float(coords.clone());
-    // TODO: acoount for periodic boundaries
+    let supercell_coords = get_supercell_coords(&coords, &dump.sym_box, cutoff);
+    let kdtree = kd_tree::KdTree::build_by_ordered_float(supercell_coords);
     let rdf = coords
         .par_iter()
         .map(|atom| {
+            let d_sq = kdtree
+                .within_radius(atom, cutoff)
+                .into_iter()
+                .map(|neigh| atom.distance_squared(neigh))
+                .collect::<Vec<_>>();
             bins.iter()
-                .copied()
-                .map(|(lo, hi)| {
-                    let n_lo = kdtree.within_radius(atom, lo).len();
-                    let n_hi = kdtree.within_radius(atom, hi).len();
-                    let n = (n_hi - n_lo) as f64;
+                .map(|&(lo, hi)| {
+                    let lo_sq = lo.powi(2);
+                    let hi_sq = hi.powi(2);
+                    let n = d_sq
+                        .iter()
+                        .filter(|&&d_sq| d_sq >= lo_sq && d_sq < hi_sq)
+                        .count();
                     ((lo, hi), n)
                 })
                 .collect::<Vec<_>>()
@@ -66,7 +101,7 @@ fn get_rdf(cutoff: f64, n: usize, dump: &DumpSnapshot) -> Vec<(f64, f64)> {
         .reduce(
             || {
                 bins.iter()
-                    .map(|&(lo, hi)| ((lo, hi), 0.0))
+                    .map(|&(lo, hi)| ((lo, hi), 0))
                     .collect::<Vec<_>>()
             },
             |mut a, b| {
