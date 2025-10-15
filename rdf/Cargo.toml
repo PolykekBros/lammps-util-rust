@@ -11,3 +11,4 @@ env_logger = { workspace=true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 kd-tree = { workspace=true }
+rayon = { workspace=true }

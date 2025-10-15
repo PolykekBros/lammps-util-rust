@@ -1077,6 +1077,7 @@ dependencies = [
  "kd-tree",
  "lammps-util-rust",
  "log",
+ "rayon",
 ]
 
 [[package]]
