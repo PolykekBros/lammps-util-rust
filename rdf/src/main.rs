@@ -103,7 +103,7 @@ fn get_rdf(cutoff: f64, n: usize, dump: &DumpSnapshot) -> Vec<(f64, f64)> {
                     let hi_sq = hi.powi(2);
                     let n = d_sq
                         .iter()
-                        .filter(|&&d_sq| d_sq >= lo_sq && d_sq < hi_sq)
+                        .filter(|&&d_sq| d_sq >= lo_sq && d_sq < hi_sq && d_sq != 0.0)
                         .count();
                     ((lo, hi), n)
                 })
