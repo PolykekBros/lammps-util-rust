@@ -1,7 +1,9 @@
 use kd_tree::KdPoint;
 use nalgebra::Point3;
 use std::{
-    hash::{Hash, Hasher}, iter, ops::{Deref, DerefMut}
+    hash::{Hash, Hasher},
+    iter,
+    ops::{Deref, DerefMut},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -48,14 +50,29 @@ impl XYZ {
     }
 
     pub fn distance_squared(&self, point: &XYZ) -> f64 {
-        iter::zip(self.0.iter(), point.0.iter()).map(|(a, b)| (a - b).powi(2)).sum()
+        iter::zip(self.0.iter(), point.0.iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum()
     }
 
     pub fn distance(&self, point: &XYZ) -> f64 {
         self.distance_squared(point).sqrt()
     }
-}
 
+    pub fn subtract(&self, point: &XYZ) -> XYZ {
+        let mut p = XYZ::from([0.0, 0.0, 0.0], self.1);
+        iter::zip(p.0.iter_mut(), iter::zip(self.0.iter(), point.0.iter()))
+            .for_each(|(a, (b, c))| *a = b - c);
+        p
+    }
+
+    pub fn multiply(&self, point: &XYZ) -> XYZ {
+        let mut p = XYZ::from([0.0, 0.0, 0.0], self.1);
+        iter::zip(p.0.iter_mut(), iter::zip(self.0.iter(), point.0.iter()))
+            .for_each(|(a, (b, c))| *a = b * c);
+        p
+    }
+}
 
 pub fn check_cutoff(a: XYZ, b: XYZ, cutoff: f64) -> bool {
     a.distance_squared(&b) <= cutoff * cutoff

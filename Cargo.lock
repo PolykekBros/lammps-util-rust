@@ -3,6 +3,20 @@
 version = 4
 
 [[package]]
+name = "adf"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "itertools",
+ "kd-tree",
+ "lammps-util-rust",
+ "log",
+ "rayon",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

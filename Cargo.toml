@@ -16,7 +16,7 @@ rayon = { workspace=true }
 assert_float_eq = { version = "1.1.4", features = ["std"] }
 
 [workspace]
-members = [ "blob", "blob_5", "carbon-structure-analysis",
+members = ["adf", "blob", "blob_5", "carbon-structure-analysis",
   "component-shift",
   "crater-analysis",
   "density-distribution", "detect-sputtered", "rdf",
