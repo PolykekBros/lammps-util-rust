@@ -25,14 +25,14 @@ pub enum DumpParsingError {
 
 impl std::fmt::Display for DumpParsingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
 impl std::error::Error for DumpParsingError {}
 
 impl DumpFile {
-    pub fn new(snapshots: Vec<DumpSnapshot>) -> Self {
+    #[must_use] pub fn new(snapshots: Vec<DumpSnapshot>) -> Self {
         let mut snapshots_map = HashMap::new();
         for snapshot in snapshots {
             snapshots_map.entry(snapshot.step).insert_entry(snapshot);
@@ -49,7 +49,7 @@ impl DumpFile {
         .lines()
         .map_while(Result::ok);
         let mut timesteps = timesteps.to_vec();
-        timesteps.sort();
+        timesteps.sort_unstable();
 
         let mut dump = Self {
             snapshots: HashMap::new(),
@@ -76,7 +76,7 @@ impl DumpFile {
                 if &timestep > timesteps.last().unwrap_or(&u64::MAX) {
                     break Ok(dump);
                 } else if !timesteps.contains(&timestep) {
-                    for _ in 0..number_of_atoms + 4 + 1 {
+                    for _ in 0..=(number_of_atoms + 4) {
                         if lines.next().is_none() {
                             break;
                         }
@@ -101,14 +101,14 @@ impl DumpFile {
         Ok(())
     }
 
-    pub fn get_snapshots(&self) -> Vec<&DumpSnapshot> {
+    #[must_use] pub fn get_snapshots(&self) -> Vec<&DumpSnapshot> {
         let mut entries: Vec<(&u64, &DumpSnapshot)> = self.snapshots.iter().collect();
         entries.sort_by(|a, b| a.0.cmp(b.0));
         entries.into_iter().map(|i| i.1).collect()
     }
 
     #[inline]
-    pub fn get_property(&self, timestep: u64, key: &str) -> &[f64] {
+    #[must_use] pub fn get_property(&self, timestep: u64, key: &str) -> &[f64] {
         self.snapshots[&timestep].get_property(key)
     }
 }

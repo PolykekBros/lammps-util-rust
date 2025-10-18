@@ -29,13 +29,13 @@ pub struct RunDir {
 }
 
 impl RunDir {
-    fn new(path: PathBuf, num: usize) -> Self {
+    const fn new(path: PathBuf, num: usize) -> Self {
         Self { path, num }
     }
 }
 
 pub fn get_runs_dirs(results_dir: &Path) -> io::Result<impl Iterator<Item = io::Result<RunDir>>> {
-    Ok(read_dir(results_dir)?.flat_map(|e| {
+    Ok(read_dir(results_dir)?.filter_map(|e| {
         e.map(|e| {
             let p = e.path();
             let i = p
@@ -81,7 +81,7 @@ fn crater_candidates_snapshot(
 ) -> DumpSnapshot {
     let initial_coords = initial_snapshot.get_coordinates();
     let final_coords = final_snapshot.get_coordinates();
-    let kdtree = kd_tree::KdTree::build_by_ordered_float(final_coords.clone());
+    let kdtree = kd_tree::KdTree::build_by_ordered_float(final_coords);
     let mut indices = Vec::new();
     for atom in initial_coords {
         if kdtree
@@ -99,7 +99,7 @@ fn crater_candidates_snapshot(
     clusterize_snapshot(&candidates_snapshot, cluster_cutoff)
 }
 
-pub fn crater_snapshot(
+#[must_use] pub fn crater_snapshot(
     initial_snapshot: &DumpSnapshot,
     final_snapshot: &DumpSnapshot,
     candidate_cutoff: f64,

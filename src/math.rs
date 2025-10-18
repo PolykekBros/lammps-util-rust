@@ -4,7 +4,7 @@ macro_rules! impl_range {
     ($($a:ident)*) => ($(
         pub fn $a(begin: $a, end: $a, count: usize) -> impl Iterator<Item = $a> {
             let step = (end - begin) / 1.max(1.max(count) - 1)  as $a;
-            (0..count).map(move |i| begin + i as $a * step)
+            (0..count).map(move |i| (i as $a).mul_add(step, begin))
         }
     )*)
 }

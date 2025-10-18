@@ -22,7 +22,7 @@ pub struct SymBox {
 }
 
 impl SymBox {
-    pub fn volume(&self) -> f32 {
+    #[must_use] pub fn volume(&self) -> f32 {
         self.bbox.volume()
     }
 }
@@ -37,7 +37,7 @@ pub struct DumpSnapshot {
 }
 
 impl DumpSnapshot {
-    pub fn new(
+    #[must_use] pub fn new(
         keys: HashMap<String, usize>,
         step: u64,
         atoms_count: usize,
@@ -104,7 +104,7 @@ impl DumpSnapshot {
             }
             _ => return Err(DumpParsingError::MissingAtomKeys),
         }
-        let mut snapshot = DumpSnapshot::new(keys_map, step, atoms_count, sym_box);
+        let mut snapshot = Self::new(keys_map, step, atoms_count, sym_box);
         for i in 0..atoms_count {
             let values: Vec<f64> = lines
                 .next()
@@ -140,21 +140,21 @@ impl DumpSnapshot {
         Ok(())
     }
 
-    pub fn get_keys_map(&self) -> &HashMap<String, usize> {
+    #[must_use] pub const fn get_keys_map(&self) -> &HashMap<String, usize> {
         &self.keys
     }
 
-    pub fn get_keys(&self) -> Vec<&str> {
+    #[must_use] pub fn get_keys(&self) -> Vec<&str> {
         let mut keys: Vec<(&String, &usize)> = self.keys.iter().collect();
         keys.sort_by(|a, b| a.1.cmp(b.1));
         keys.into_iter().map(|i| i.0.as_str()).collect()
     }
 
-    pub fn get_property_index(&self, key: &str) -> usize {
+    #[must_use] pub fn get_property_index(&self, key: &str) -> usize {
         self.keys[key]
     }
 
-    pub fn get_property(&self, key: &str) -> &[f64] {
+    #[must_use] pub fn get_property(&self, key: &str) -> &[f64] {
         let start = self.keys[key] * self.atoms_count;
         let end = start + self.atoms_count;
         &self.atoms[start..end]
@@ -166,12 +166,12 @@ impl DumpSnapshot {
         &mut self.atoms[start..end]
     }
 
-    pub fn get_atom_value(&self, property_index: usize, atom_index: usize) -> f64 {
+    #[must_use] pub fn get_atom_value(&self, property_index: usize, atom_index: usize) -> f64 {
         self.atoms[self.atoms_count * property_index + atom_index]
     }
 
     pub fn set_atom_value(&mut self, property_index: usize, atom_index: usize, value: f64) {
-        self.atoms[self.atoms_count * property_index + atom_index] = value
+        self.atoms[self.atoms_count * property_index + atom_index] = value;
     }
 
     pub fn get_zero_lvl(&self) -> f64 {
@@ -181,7 +181,7 @@ impl DumpSnapshot {
             .fold(f64::NEG_INFINITY, f64::max)
     }
 
-    pub fn get_coordinates(&self) -> Vec<XYZ> {
+    #[must_use] pub fn get_coordinates(&self) -> Vec<XYZ> {
         izip!(
             self.get_property("x").iter(),
             self.get_property("y").iter(),
@@ -203,7 +203,7 @@ impl fmt::Debug for DumpSnapshot {
     }
 }
 
-pub fn copy_snapshot(input_snapshot: &DumpSnapshot) -> DumpSnapshot {
+#[must_use] pub fn copy_snapshot(input_snapshot: &DumpSnapshot) -> DumpSnapshot {
     copy_snapshot_with_indices_with_keys(
         input_snapshot,
         std::iter::empty(),

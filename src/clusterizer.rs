@@ -3,7 +3,7 @@ use log::debug;
 use crate::{copy_snapshot_with_keys, DumpSnapshot, XYZ};
 use std::collections::{HashMap, HashSet};
 
-pub fn clusterize_snapshot(snapshot: &DumpSnapshot, cutoff: f64) -> DumpSnapshot {
+#[must_use] pub fn clusterize_snapshot(snapshot: &DumpSnapshot, cutoff: f64) -> DumpSnapshot {
     assert!(cutoff >= 0.0);
     let mut snapshot = copy_snapshot_with_keys(snapshot, ["cluster"].into_iter());
     let coords = snapshot.get_coordinates();
@@ -46,7 +46,7 @@ fn clusterize_coords(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<u
     map
 }
 
-pub fn get_cluster_counts(snapshot: &DumpSnapshot) -> HashMap<usize, usize> {
+#[must_use] pub fn get_cluster_counts(snapshot: &DumpSnapshot) -> HashMap<usize, usize> {
     let clusters = snapshot.get_property("cluster");
     let mut cluster_cnt = HashMap::new();
     for cluster in clusters {
@@ -57,7 +57,7 @@ pub fn get_cluster_counts(snapshot: &DumpSnapshot) -> HashMap<usize, usize> {
     cluster_cnt
 }
 
-pub fn get_max_cluster_id(snapshot: &DumpSnapshot) -> usize {
+#[must_use] pub fn get_max_cluster_id(snapshot: &DumpSnapshot) -> usize {
     let cluster_cnt = get_cluster_counts(snapshot);
     let (max_cluster, _) = cluster_cnt
         .into_iter()

@@ -39,7 +39,7 @@ impl XYZ {
         }
     }
 
-    pub fn check_cutoff(a: Self, b: Self, cutoff: f32) -> bool {
+    #[must_use] pub fn check_cutoff(a: Self, b: Self, cutoff: f32) -> bool {
         a.distance_squared(*b) <= cutoff * cutoff
     }
 
@@ -61,7 +61,7 @@ impl XYZ {
                     -1.0 => coords[atom_idx][i] > hi[i] - cutoff,
                     _ => true,
                 }) {
-                    coords.push(XYZ::from(*coords[atom_idx] + *shift, coords.len()));
+                    coords.push(Self::from(*coords[atom_idx] + *shift, coords.len()));
                 }
             }
         }
