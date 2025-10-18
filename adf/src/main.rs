@@ -3,7 +3,7 @@ use clap::Parser;
 use itertools::Itertools;
 use lammps_util_rust::{DumpFile, DumpSnapshot, SymBox, XYZ};
 // use rayon::prelude::*;
-use std::{array, f64, iter, path::PathBuf};
+use std::{array, f64, iter, ops::Deref, path::PathBuf};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -40,18 +40,19 @@ fn get_bins(n: usize) -> Vec<(f64, f64)> {
         .collect()
 }
 
-fn get_cos((atom_i, atom_j, atom_k):(XYZ, XYZ, XYZ)) -> f64 {
-    let r1 = atom_i.subtract(&atom_k);
-    let r2 = atom_j.subtract(&atom_k);
-
+fn get_cos((atom_i, atom_j, atom_k): (&XYZ, &XYZ, &XYZ)) -> f64 {
+    let (atom_i, atom_j, atom_k) = (*atom_i.clone(), *atom_j.clone(), *atom_k.clone());
+    let r1 = atom_i - atom_k;
+    let r2 = atom_j - atom_k;
+    0.0
 }
 
 fn get_adf(
     type_i: usize,
     type_j: usize,
     type_k: usize,
-    cutoff_i: f64,
-    cutoff_j: f64,
+    cutoff_i: f32,
+    cutoff_j: f32,
     n: usize,
     dump: &DumpSnapshot,
 ) -> Vec<(f64, f64)> {
@@ -70,20 +71,13 @@ fn get_adf(
                 d_types[atom_j.index()] as usize == type_j && atom_j.index() != atom_k.index()
             });
             i_neigh
-                .iter()
+                .into_iter()
                 .filter(|atom_i| {
                     d_types[atom_i.index()] as usize == type_i && atom_i.index() != atom_k.index()
                 })
-                .flat_map(|atom_i| j_neigh.iter().map(|atom_j| (atom_i, atom_j, atom_k)))
-        }).map( |(atom_i, atom_j, atom_k)|  );
-
-    for atom in kdtree.items() {
-        let idx = atom.index();
-        if d_types[idx] as usize == c_atom_type {
-            let i_neigh = kdtree.within_radius(atom, cutoff_i);
-            let j_neigh = kdtree.within_radius(atom, cutoff_j);
-        }
-    }
+                .flat_map(move |atom_i| j_neigh.iter().map(move |atom_j| (atom_i, *atom_j, atom_k)))
+        })
+        .map(get_cos);
     Vec::new()
 }
 
@@ -101,8 +95,8 @@ fn main() -> Result<()> {
         cli.type_i,
         cli.type_j,
         cli.type_k,
-        cli.cutoff_i,
-        cli.cutoff_j,
+        cli.cutoff_i as f32,
+        cli.cutoff_j as f32,
         cli.n_bins,
         snapshot,
     );

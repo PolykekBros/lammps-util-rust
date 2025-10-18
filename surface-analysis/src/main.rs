@@ -85,9 +85,9 @@ impl SurfaceValues {
         xyz.into_iter()
             .map(|p| {
                 Point3::from([
-                    (p.x as f32 - x_lo) / square_width,
-                    (p.y as f32 - y_lo) / square_width,
-                    p.z as f32,
+                    (p.x - x_lo) / square_width,
+                    (p.y - y_lo) / square_width,
+                    p.z,
                 ])
             })
             .filter(|p| p.x >= 0.0 && p.x <= x_cnt_f32 && p.y >= 0.0 && p.y <= y_cnt_f32)

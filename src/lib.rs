@@ -19,8 +19,9 @@ pub use dump_snapshot::{
     copy_snapshot, copy_snapshot_with_indices, copy_snapshot_with_indices_with_keys,
     copy_snapshot_with_keys, DumpSnapshot, SymBox,
 };
+pub use geomutil_util;
 pub use math::{range, IteratorAvg};
-pub use xyz::{check_cutoff, XYZ};
+pub use xyz::XYZ;
 
 pub struct RunDir {
     pub path: PathBuf,
@@ -83,8 +84,11 @@ fn crater_candidates_snapshot(
     let kdtree = kd_tree::KdTree::build_by_ordered_float(final_coords.clone());
     let mut indices = Vec::new();
     for atom in initial_coords {
-        if kdtree.within_radius(&atom, candidate_cutoff).is_empty() {
-            indices.push(atom.index());
+        if kdtree
+            .within_radius(&atom, candidate_cutoff as f32)
+            .is_empty()
+        {
+            indices.push(atom.index);
         }
     }
     let candidates_snapshot = copy_snapshot_with_indices(initial_snapshot, indices.into_iter());

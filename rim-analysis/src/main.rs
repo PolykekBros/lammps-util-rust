@@ -73,14 +73,17 @@ impl Atom {
 #[derive(Debug, Clone)]
 struct RimValues {
     atoms: Vec<Atom>,
-    center: Point2,
+    _center: Point2,
 }
 
 impl RimValues {
     fn new(atoms: Vec<Atom>, center: Point2) -> Self {
         let mut atoms = atoms;
         atoms.iter_mut().for_each(|a| a.coords -= center);
-        Self { atoms, center }
+        Self {
+            atoms,
+            _center: center,
+        }
     }
 
     fn get_sectors(&self) -> Sectors {

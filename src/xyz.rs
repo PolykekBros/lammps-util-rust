@@ -1,79 +1,69 @@
+use geomutil_util::Point3;
 use kd_tree::KdPoint;
-use nalgebra::Point3;
-use std::{
-    hash::{Hash, Hasher},
-    iter,
-    ops::{Deref, DerefMut},
-};
+use std::ops::{Deref, DerefMut};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct XYZ(Point3<f64>, usize);
+use crate::SymBox;
 
-impl Eq for XYZ {}
-
-impl Hash for XYZ {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.coords.iter().for_each(|n| {
-            n.to_bits().hash(state);
-        });
-    }
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct XYZ {
+    pub coords: Point3,
+    pub index: usize,
 }
 
 impl Deref for XYZ {
-    type Target = Point3<f64>;
+    type Target = Point3;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.coords
     }
 }
 
 impl DerefMut for XYZ {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.coords
     }
 }
 
 impl KdPoint for XYZ {
-    type Scalar = f64;
+    type Scalar = f32;
     type Dim = typenum::U3;
-    fn at(&self, i: usize) -> f64 {
-        self.coords[i]
+    fn at(&self, i: usize) -> f32 {
+        self.coords.coords[i]
     }
 }
 
 impl XYZ {
-    pub fn from(xyz: [f64; 3], i: usize) -> Self {
-        Self(xyz.into(), i)
+    pub fn from(coords: impl Into<Point3>, index: usize) -> Self {
+        Self {
+            coords: coords.into(),
+            index,
+        }
     }
 
-    pub fn index(&self) -> usize {
-        self.1
+    pub fn check_cutoff(a: Self, b: Self, cutoff: f32) -> bool {
+        a.distance_squared(*b) <= cutoff * cutoff
     }
 
-    pub fn distance_squared(&self, point: &XYZ) -> f64 {
-        iter::zip(self.0.iter(), point.0.iter())
-            .map(|(a, b)| (a - b).powi(2))
-            .sum()
+    pub fn get_supercell_coords(coords: &mut Vec<Self>, sym_box: &SymBox, cutoff: f32) {
+        let lo = sym_box.bbox.lower();
+        let hi = sym_box.bbox.upper();
+        let shift = sym_box.bbox.dimensions();
+        let periods_and_shifts = (-1..=1)
+            .flat_map(|px| (-1..=1).map(move |py| (px, py)))
+            .flat_map(|(px, py)| (-1..=1).map(move |pz| [px, py, pz]))
+            .filter(|periods| periods.iter().any(|&period| period != 0))
+            .map(|periods| Point3::from(periods.map(|p| p as f32)))
+            .map(|periods| (periods, shift * periods))
+            .collect::<Vec<_>>();
+        for atom_idx in 0..coords.len() {
+            for (period, shift) in &periods_and_shifts {
+                if (0..3).all(|i| match period[i] {
+                    1.0 => coords[atom_idx][i] < lo[i] + cutoff,
+                    -1.0 => coords[atom_idx][i] > hi[i] - cutoff,
+                    _ => true,
+                }) {
+                    coords.push(XYZ::from(*coords[atom_idx] + *shift, coords.len()));
+                }
+            }
+        }
     }
-
-    pub fn distance(&self, point: &XYZ) -> f64 {
-        self.distance_squared(point).sqrt()
-    }
-
-    pub fn subtract(&self, point: &XYZ) -> XYZ {
-        let mut p = XYZ::from([0.0, 0.0, 0.0], self.1);
-        iter::zip(p.0.iter_mut(), iter::zip(self.0.iter(), point.0.iter()))
-            .for_each(|(a, (b, c))| *a = b - c);
-        p
-    }
-
-    pub fn multiply(&self, point: &XYZ) -> XYZ {
-        let mut p = XYZ::from([0.0, 0.0, 0.0], self.1);
-        iter::zip(p.0.iter_mut(), iter::zip(self.0.iter(), point.0.iter()))
-            .for_each(|(a, (b, c))| *a = b * c);
-        p
-    }
-}
-
-pub fn check_cutoff(a: XYZ, b: XYZ, cutoff: f64) -> bool {
-    a.distance_squared(&b) <= cutoff * cutoff
 }

@@ -3,9 +3,11 @@ use std::fmt;
 use std::io;
 
 use itertools::izip;
+use itertools::Itertools;
 use log::debug;
 
 use crate::dump_file::DumpParsingError;
+use crate::geomutil_util::BoundingBox3;
 use crate::XYZ;
 
 pub const HEADER_TIMESTEP: &str = "ITEM: TIMESTEP";
@@ -16,20 +18,12 @@ pub const HEADER_ATOMS: &str = "ITEM: ATOMS";
 #[derive(Debug, Clone)]
 pub struct SymBox {
     pub boundaries: String,
-    pub xlo: f64,
-    pub xhi: f64,
-    pub ylo: f64,
-    pub yhi: f64,
-    pub zlo: f64,
-    pub zhi: f64,
+    pub bbox: BoundingBox3,
 }
 
 impl SymBox {
-    pub fn volume(&self) -> f64 {
-        let dx = self.xhi - self.xlo;
-        let dy = self.yhi - self.ylo;
-        let dz = self.zhi - self.zlo;
-        dx * dy * dz
+    pub fn volume(&self) -> f32 {
+        self.bbox.volume()
     }
 }
 
@@ -68,13 +62,13 @@ impl DumpSnapshot {
                 .map(|(_, boundaries)| boundaries.to_string())
         }) {
             Some(boundaries) => {
-                let borders: Vec<(f64, f64)> = (0..3)
+                let borders: Vec<(f32, f32)> = (0..3)
                     .filter_map(|_| {
                         lines.next().map(|l| {
                             let mut s = l.split_whitespace();
                             (
-                                s.next().and_then(|s| s.parse::<f64>().ok()),
-                                s.next().and_then(|s| s.parse::<f64>().ok()),
+                                s.next().and_then(|s| s.parse::<f32>().ok()),
+                                s.next().and_then(|s| s.parse::<f32>().ok()),
                             )
                         })
                     })
@@ -86,14 +80,11 @@ impl DumpSnapshot {
                 if borders.len() != 3 {
                     return Err(DumpParsingError::MissingSymBox);
                 }
+                let a: [f32; 3] = borders.iter().map(|(a, _)| *a).collect_array().unwrap();
+                let b: [f32; 3] = borders.iter().map(|(_, b)| *b).collect_array().unwrap();
                 SymBox {
                     boundaries: boundaries[1..].to_string(),
-                    xlo: borders[0].0,
-                    xhi: borders[0].1,
-                    ylo: borders[1].0,
-                    yhi: borders[1].1,
-                    zlo: borders[2].0,
-                    zhi: borders[2].1,
+                    bbox: BoundingBox3::new(a.into(), b.into()),
                 }
             }
             _ => return Err(DumpParsingError::MissingSymBox),
@@ -135,9 +126,9 @@ impl DumpSnapshot {
         writeln!(w, "{HEADER_NUM_OF_ATOMS}")?;
         writeln!(w, "{}", self.atoms_count)?;
         writeln!(w, "{HEADER_SYM_BOX} {}", self.sym_box.boundaries)?;
-        writeln!(w, "{} {}", self.sym_box.xlo, self.sym_box.xhi)?;
-        writeln!(w, "{} {}", self.sym_box.ylo, self.sym_box.yhi)?;
-        writeln!(w, "{} {}", self.sym_box.zlo, self.sym_box.zhi)?;
+        for (lo, hi) in izip!(self.sym_box.bbox.lower(), self.sym_box.bbox.upper()) {
+            writeln!(w, "{lo} {hi}",)?;
+        }
         writeln!(w, "{HEADER_ATOMS} {}", self.get_keys().join(" "))?;
         for i in 0..self.atoms_count {
             write!(w, "{}", self.atoms[i])?;
@@ -194,10 +185,10 @@ impl DumpSnapshot {
         izip!(
             self.get_property("x").iter(),
             self.get_property("y").iter(),
-            self.get_property("z").iter()
+            self.get_property("z").iter(),
         )
         .enumerate()
-        .map(|(i, (&x, &y, &z))| XYZ::from([x, y, z], i))
+        .map(|(i, (&x, &y, &z))| XYZ::from([x as f32, y as f32, z as f32], i))
         .collect()
     }
 }

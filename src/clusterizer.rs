@@ -26,17 +26,17 @@ fn clusterize_coords(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<u
     let mut visited = vec![false; coords.len()];
     let mut map = HashMap::new();
     for atom in coords {
-        if visited[atom.index()] {
+        if visited[atom.index] {
             continue;
         }
-        visited[atom.index()] = true;
-        let cluster = map.entry(atom.index()).or_insert(HashSet::new());
+        visited[atom.index] = true;
+        let cluster = map.entry(atom.index).or_insert(HashSet::new());
         let mut stack = vec![atom];
         while let Some(atom) = stack.pop() {
-            cluster.insert(atom.index());
-            for neigh in kdtree.within_radius(atom, cutoff) {
-                if !visited[neigh.index()] {
-                    visited[neigh.index()] = true;
+            cluster.insert(atom.index);
+            for neigh in kdtree.within_radius(atom, cutoff as f32) {
+                if !visited[neigh.index] {
+                    visited[neigh.index] = true;
                     stack.push(neigh);
                 }
             }
