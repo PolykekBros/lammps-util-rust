@@ -1,11 +1,9 @@
-use std::path::PathBuf;
+use std::{iter, path::PathBuf};
 
 use anyhow::Result;
 use clap::Parser;
-use itertools::izip;
-use lammps_util_rust::{crater_snapshot, DumpFile, DumpSnapshot, XYZ};
+use lammps_util_rust::{crater_snapshot, geomutil_util::Point3, DumpFile, DumpSnapshot, XYZ};
 use log::debug;
-use nalgebra::Vector3;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -17,17 +15,18 @@ struct Cli {
     dump_final: PathBuf,
 }
 
-fn get_coords_shift(a: &[XYZ], b: &[XYZ]) -> (usize, Vector3<f64>, Vector3<f64>) {
-    let deltas = izip!(a, b)
+fn get_coords_shift(a: &[XYZ], b: &[XYZ]) -> (usize, Point3, Point3) {
+    let deltas = iter::zip(a, b)
         .map(|(a, b)| **b - **a)
-        .collect::<Vec<Vector3<f64>>>();
-    let sum = deltas.iter().copied().sum::<Vector3<f64>>();
+        .collect::<Vec<Point3>>();
+    let count = deltas.len();
+    let sum = deltas.iter().copied().reduce(|a, b| a + b).unwrap();
     let sum2 = deltas
-        .iter()
-        .copied()
-        .map(|a| a.component_mul(&a))
-        .sum::<Vector3<f64>>();
-    (deltas.len(), sum, sum2)
+        .into_iter()
+        .map(|a| a * a)
+        .reduce(|a, b| a + b)
+        .unwrap();
+    (count, sum, sum2)
 }
 
 fn get_ids(input_snapshot: &DumpSnapshot, final_snapshot: &DumpSnapshot) -> Vec<f64> {
@@ -44,7 +43,7 @@ fn get_ids(input_snapshot: &DumpSnapshot, final_snapshot: &DumpSnapshot) -> Vec<
 }
 
 fn get_coords_filtered(snapshot: &DumpSnapshot, ids: &[f64]) -> Vec<XYZ> {
-    izip!(snapshot.get_coordinates(), snapshot.get_property("id"))
+    iter::zip(snapshot.get_coordinates(), snapshot.get_property("id"))
         .filter(|(_, id)| ids.contains(id))
         .map(|(xyz, _)| xyz)
         .collect()
