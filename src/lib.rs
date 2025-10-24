@@ -1,3 +1,6 @@
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::missing_errors_doc)]
 mod clusterizer;
 mod dump_file;
 mod dump_snapshot;
@@ -76,18 +79,15 @@ where
 fn crater_candidates_snapshot(
     initial_snapshot: &DumpSnapshot,
     final_snapshot: &DumpSnapshot,
-    candidate_cutoff: f64,
-    cluster_cutoff: f64,
+    candidate_cutoff: f32,
+    cluster_cutoff: f32,
 ) -> DumpSnapshot {
     let initial_coords = initial_snapshot.get_coordinates();
     let final_coords = final_snapshot.get_coordinates();
     let kdtree = kd_tree::KdTree::build_by_ordered_float(final_coords);
     let mut indices = Vec::new();
     for atom in initial_coords {
-        if kdtree
-            .within_radius(&atom, candidate_cutoff as f32)
-            .is_empty()
-        {
+        if kdtree.within_radius(&atom, candidate_cutoff).is_empty() {
             indices.push(atom.index);
         }
     }
@@ -99,11 +99,12 @@ fn crater_candidates_snapshot(
     clusterize_snapshot(&candidates_snapshot, cluster_cutoff)
 }
 
-#[must_use] pub fn crater_snapshot(
+#[must_use]
+pub fn crater_snapshot(
     initial_snapshot: &DumpSnapshot,
     final_snapshot: &DumpSnapshot,
-    candidate_cutoff: f64,
-    cluster_cutoff: f64,
+    candidate_cutoff: f32,
+    cluster_cutoff: f32,
 ) -> DumpSnapshot {
     let candidates_snapshot = &crater_candidates_snapshot(
         initial_snapshot,
@@ -113,6 +114,8 @@ fn crater_candidates_snapshot(
     );
     let max_cluster = get_max_cluster_id(candidates_snapshot);
     let cluster = candidates_snapshot.get_property("cluster");
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_sign_loss)]
     let indices = cluster
         .iter()
         .enumerate()

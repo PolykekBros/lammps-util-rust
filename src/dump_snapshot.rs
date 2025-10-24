@@ -3,7 +3,6 @@ use std::fmt;
 use std::io;
 
 use itertools::izip;
-use itertools::Itertools;
 use log::debug;
 
 use crate::dump_file::DumpParsingError;
@@ -22,7 +21,8 @@ pub struct SymBox {
 }
 
 impl SymBox {
-    #[must_use] pub fn volume(&self) -> f32 {
+    #[must_use]
+    pub fn volume(&self) -> f32 {
         self.bbox.volume()
     }
 }
@@ -37,7 +37,8 @@ pub struct DumpSnapshot {
 }
 
 impl DumpSnapshot {
-    #[must_use] pub fn new(
+    #[must_use]
+    pub fn new(
         keys: HashMap<String, usize>,
         step: u64,
         atoms_count: usize,
@@ -80,11 +81,12 @@ impl DumpSnapshot {
                 if borders.len() != 3 {
                     return Err(DumpParsingError::MissingSymBox);
                 }
-                let a: [f32; 3] = borders.iter().map(|(a, _)| *a).collect_array().unwrap();
-                let b: [f32; 3] = borders.iter().map(|(_, b)| *b).collect_array().unwrap();
                 SymBox {
                     boundaries: boundaries[1..].to_string(),
-                    bbox: BoundingBox3::new(a.into(), b.into()),
+                    bbox: BoundingBox3::new(
+                        [borders[0].0, borders[1].0, borders[2].0].into(),
+                        [borders[0].1, borders[1].1, borders[2].1].into(),
+                    ),
                 }
             }
             _ => return Err(DumpParsingError::MissingSymBox),
@@ -140,21 +142,25 @@ impl DumpSnapshot {
         Ok(())
     }
 
-    #[must_use] pub const fn get_keys_map(&self) -> &HashMap<String, usize> {
+    #[must_use]
+    pub const fn get_keys_map(&self) -> &HashMap<String, usize> {
         &self.keys
     }
 
-    #[must_use] pub fn get_keys(&self) -> Vec<&str> {
+    #[must_use]
+    pub fn get_keys(&self) -> Vec<&str> {
         let mut keys: Vec<(&String, &usize)> = self.keys.iter().collect();
         keys.sort_by(|a, b| a.1.cmp(b.1));
         keys.into_iter().map(|i| i.0.as_str()).collect()
     }
 
-    #[must_use] pub fn get_property_index(&self, key: &str) -> usize {
+    #[must_use]
+    pub fn get_property_index(&self, key: &str) -> usize {
         self.keys[key]
     }
 
-    #[must_use] pub fn get_property(&self, key: &str) -> &[f64] {
+    #[must_use]
+    pub fn get_property(&self, key: &str) -> &[f64] {
         let start = self.keys[key] * self.atoms_count;
         let end = start + self.atoms_count;
         &self.atoms[start..end]
@@ -166,7 +172,8 @@ impl DumpSnapshot {
         &mut self.atoms[start..end]
     }
 
-    #[must_use] pub fn get_atom_value(&self, property_index: usize, atom_index: usize) -> f64 {
+    #[must_use]
+    pub fn get_atom_value(&self, property_index: usize, atom_index: usize) -> f64 {
         self.atoms[self.atoms_count * property_index + atom_index]
     }
 
@@ -181,7 +188,9 @@ impl DumpSnapshot {
             .fold(f64::NEG_INFINITY, f64::max)
     }
 
-    #[must_use] pub fn get_coordinates(&self) -> Vec<XYZ> {
+    #[must_use]
+    pub fn get_coordinates(&self) -> Vec<XYZ> {
+        #[allow(clippy::cast_possible_truncation)]
         izip!(
             self.get_property("x").iter(),
             self.get_property("y").iter(),
@@ -199,11 +208,12 @@ impl fmt::Debug for DumpSnapshot {
             .field("step", &self.step)
             .field("atoms_count", &self.atoms_count)
             .field("keys", &self.keys)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
-#[must_use] pub fn copy_snapshot(input_snapshot: &DumpSnapshot) -> DumpSnapshot {
+#[must_use]
+pub fn copy_snapshot(input_snapshot: &DumpSnapshot) -> DumpSnapshot {
     copy_snapshot_with_indices_with_keys(
         input_snapshot,
         std::iter::empty(),

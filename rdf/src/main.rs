@@ -48,8 +48,7 @@ fn normalize(
 fn get_rdf(cutoff: f32, n: usize, dump: &DumpSnapshot) -> Vec<(f32, f32)> {
     let bins = get_bins(cutoff, n);
     let mut coords = dump.get_coordinates();
-    // XYZ::get_supercell_coords(&mut coords, &dump.sym_box, cutoff);
-    println!("before tree");
+    XYZ::get_supercell_coords(&mut coords, &dump.sym_box, cutoff);
     let kdtree = kd_tree::KdTree::build_by_ordered_float(coords);
     let rdf = kdtree
         .items()
@@ -92,9 +91,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let dump_path = cli.dump_file;
     let timesteps = cli.timestep.map(|t| vec![t]).unwrap_or_default();
-    println!("before read dump");
     let dump = DumpFile::read(dump_path.as_path(), &timesteps)?;
-    println!("read dump");
     let snapshot = dump.get_snapshots()[0];
     let rdf = get_rdf(cli.cutoff, cli.n_bins, snapshot);
     let table = rdf

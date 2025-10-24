@@ -1,11 +1,15 @@
 use log::debug;
 
 use crate::{copy_snapshot_with_keys, DumpSnapshot, XYZ};
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    iter,
+};
 
-#[must_use] pub fn clusterize_snapshot(snapshot: &DumpSnapshot, cutoff: f64) -> DumpSnapshot {
+#[must_use]
+pub fn clusterize_snapshot(snapshot: &DumpSnapshot, cutoff: f32) -> DumpSnapshot {
     assert!(cutoff >= 0.0);
-    let mut snapshot = copy_snapshot_with_keys(snapshot, ["cluster"].into_iter());
+    let mut snapshot = copy_snapshot_with_keys(snapshot, iter::once("cluster"));
     let coords = snapshot.get_coordinates();
     let clusters = clusterize_coords(&coords, cutoff);
     let cluster_j = snapshot.get_property_index("cluster");
@@ -21,8 +25,8 @@ use std::collections::{HashMap, HashSet};
     snapshot
 }
 
-fn clusterize_coords(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<usize>> {
-    let kdtree = kd_tree::KdTree::build_by_ordered_float(coords.clone());
+fn clusterize_coords(coords: &[XYZ], cutoff: f32) -> HashMap<usize, HashSet<usize>> {
+    let kdtree = kd_tree::KdTree::build_by_ordered_float(coords.to_vec());
     let mut visited = vec![false; coords.len()];
     let mut map = HashMap::new();
     for atom in coords {
@@ -30,11 +34,11 @@ fn clusterize_coords(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<u
             continue;
         }
         visited[atom.index] = true;
-        let cluster = map.entry(atom.index).or_insert(HashSet::new());
+        let cluster = map.entry(atom.index).or_insert_with(HashSet::new);
         let mut stack = vec![atom];
         while let Some(atom) = stack.pop() {
             cluster.insert(atom.index);
-            for neigh in kdtree.within_radius(atom, cutoff as f32) {
+            for neigh in kdtree.within_radius(atom, cutoff) {
                 if !visited[neigh.index] {
                     visited[neigh.index] = true;
                     stack.push(neigh);
@@ -46,10 +50,13 @@ fn clusterize_coords(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<u
     map
 }
 
-#[must_use] pub fn get_cluster_counts(snapshot: &DumpSnapshot) -> HashMap<usize, usize> {
+#[must_use]
+pub fn get_cluster_counts(snapshot: &DumpSnapshot) -> HashMap<usize, usize> {
     let clusters = snapshot.get_property("cluster");
     let mut cluster_cnt = HashMap::new();
     for cluster in clusters {
+        #[allow(clippy::cast_possible_truncation)]
+        #[allow(clippy::cast_sign_loss)]
         let cnt = cluster_cnt.entry(*cluster as usize).or_insert(0);
         *cnt += 1;
     }
@@ -57,7 +64,8 @@ fn clusterize_coords(coords: &Vec<XYZ>, cutoff: f64) -> HashMap<usize, HashSet<u
     cluster_cnt
 }
 
-#[must_use] pub fn get_max_cluster_id(snapshot: &DumpSnapshot) -> usize {
+#[must_use]
+pub fn get_max_cluster_id(snapshot: &DumpSnapshot) -> usize {
     let cluster_cnt = get_cluster_counts(snapshot);
     let (max_cluster, _) = cluster_cnt
         .into_iter()
