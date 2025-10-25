@@ -30,32 +30,42 @@ fn clusterize_coords(
     cutoff: f64,
 ) -> HashMap<usize, HashSet<usize>> {
     let mut visited = vec![false; coords.len()];
+    let mut indices = vec![0; coords.len()];
     XYZ::get_supercell_coords(&mut coords, sym_box, cutoff);
     let kdtree = kd_tree::KdTree::build_by_ordered_float(coords);
-    let mut map = HashMap::new();
-    for atom_idx in kdtree
+    kdtree
         .items()
         .iter()
-        .filter(|atom| !atom.is_ghost)
-        .map(|atom| atom.index)
-    {
-        if visited[atom_idx] {
+        .enumerate()
+        .filter(|(_, atom)| !atom.is_ghost)
+        .for_each(|(i, atom)| {
+            indices[atom.index] = i;
+        });
+    let mut map = HashMap::new();
+    for (atom_idx, atom) in indices.iter().copied().map(|i| (i, kdtree.items()[i])) {
+        if visited[atom.index] {
             continue;
         }
-        visited[atom_idx] = true;
-        let cluster = map.entry(atom_idx).or_insert_with(HashSet::new);
+        visited[atom.index] = true;
+        let cluster = map.entry(atom.index).or_insert_with(HashSet::new);
         let mut stack = vec![atom_idx];
         while let Some(atom_idx) = stack.pop() {
-            cluster.insert(atom_idx);
-            for neigh in kdtree.within_radius(&kdtree.items()[atom_idx], cutoff) {
+            let atom = kdtree.items()[atom_idx];
+            cluster.insert(atom.index);
+            for neigh in kdtree.within_radius(&atom, cutoff) {
                 if !visited[neigh.index] {
                     visited[neigh.index] = true;
-                    stack.push(neigh.index);
+                    stack.push(indices[neigh.index]);
                 }
             }
         }
     }
-    debug!("clusters {map:?}");
+    debug!(
+        "clusters {:?}",
+        map.iter()
+            .map(|(cluster_id, clusters)| (*cluster_id, clusters.len()))
+            .collect::<HashMap<_, _>>()
+    );
     map
 }
 
