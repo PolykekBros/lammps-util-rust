@@ -9,14 +9,14 @@ mod xyz;
 
 use anyhow::Result;
 use log::debug;
-use rayon::ThreadPoolBuilder;
+use rayon::prelude::*;
 use std::{
     fs::read_dir,
     io,
     path::{Path, PathBuf},
 };
 
-pub use clusterizer::{clusterize_snapshot, get_cluster_counts, get_max_cluster_id};
+pub use clusterizer::{clusterize_snapshot, get_clusters};
 pub use dump_file::DumpFile;
 pub use dump_snapshot::{
     copy_snapshot, copy_snapshot_with_indices, copy_snapshot_with_indices_with_keys,
@@ -53,25 +53,19 @@ pub fn get_runs_dirs(results_dir: &Path) -> io::Result<impl Iterator<Item = io::
     }))
 }
 
-pub fn process_results_dir<T, F>(
-    dir: &Path,
-    threads: usize,
-    processor: F,
-) -> Result<Vec<(RunDir, T)>>
+pub fn process_results_dir<T, F>(dir: &Path, processor: F) -> Result<Vec<(RunDir, T)>>
 where
     T: Send,
     F: Fn(&RunDir) -> Result<T> + Send + Sync,
 {
-    let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
-    let run_dirs_iter = get_runs_dirs(dir)?;
-    let mut results = tp.install(|| {
-        run_dirs_iter
-            .map(|run_dir| {
-                let run_dir = run_dir?;
-                processor(&run_dir).map(|r| (run_dir, r))
-            })
-            .collect::<Result<Vec<_>>>()
-    })?;
+    let run_dirs_iter = get_runs_dirs(dir)?.collect::<Vec<_>>();
+    let mut results = run_dirs_iter
+        .into_par_iter()
+        .map(|run_dir| {
+            let run_dir = run_dir?;
+            processor(&run_dir).map(|r| (run_dir, r))
+        })
+        .collect::<Result<Vec<_>>>()?;
     results.sort_by(|a, b| a.0.num.cmp(&b.0.num));
     Ok(results)
 }
@@ -79,8 +73,8 @@ where
 fn crater_candidates_snapshot(
     initial_snapshot: &DumpSnapshot,
     final_snapshot: &DumpSnapshot,
-    candidate_cutoff: f32,
-    cluster_cutoff: f32,
+    candidate_cutoff: f64,
+    cluster_cutoff: f64,
 ) -> DumpSnapshot {
     let initial_coords = initial_snapshot.get_coordinates();
     let final_coords = final_snapshot.get_coordinates();
@@ -103,23 +97,19 @@ fn crater_candidates_snapshot(
 pub fn crater_snapshot(
     initial_snapshot: &DumpSnapshot,
     final_snapshot: &DumpSnapshot,
-    candidate_cutoff: f32,
-    cluster_cutoff: f32,
+    candidate_cutoff: f64,
+    cluster_cutoff: f64,
 ) -> DumpSnapshot {
-    let candidates_snapshot = &crater_candidates_snapshot(
+    let candidates_snapshot = crater_candidates_snapshot(
         initial_snapshot,
         final_snapshot,
         candidate_cutoff,
         cluster_cutoff,
     );
-    let max_cluster = get_max_cluster_id(candidates_snapshot);
-    let cluster = candidates_snapshot.get_property("cluster");
-    #[allow(clippy::cast_possible_truncation)]
-    #[allow(clippy::cast_sign_loss)]
-    let indices = cluster
-        .iter()
-        .enumerate()
-        .filter(|(_, &cluster)| cluster as usize == max_cluster)
-        .map(|(i, _)| i);
-    copy_snapshot_with_indices(candidates_snapshot, indices)
+    let clusters = get_clusters(&candidates_snapshot);
+    let atoms = clusters
+        .into_values()
+        .max_by(|a, b| a.len().cmp(&b.len()))
+        .unwrap();
+    copy_snapshot_with_indices(&candidates_snapshot, atoms.into_iter())
 }

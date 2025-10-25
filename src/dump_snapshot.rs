@@ -17,14 +17,7 @@ pub const HEADER_ATOMS: &str = "ITEM: ATOMS";
 #[derive(Debug, Clone)]
 pub struct SymBox {
     pub boundaries: String,
-    pub bbox: BoundingBox3,
-}
-
-impl SymBox {
-    #[must_use]
-    pub fn volume(&self) -> f32 {
-        self.bbox.volume()
-    }
+    pub bbox: BoundingBox3<f64>,
 }
 
 #[derive(Clone)]
@@ -63,13 +56,13 @@ impl DumpSnapshot {
                 .map(|(_, boundaries)| boundaries.to_string())
         }) {
             Some(boundaries) => {
-                let borders: Vec<(f32, f32)> = (0..3)
+                let borders = (0..3)
                     .filter_map(|_| {
                         lines.next().map(|l| {
                             let mut s = l.split_whitespace();
                             (
-                                s.next().and_then(|s| s.parse::<f32>().ok()),
-                                s.next().and_then(|s| s.parse::<f32>().ok()),
+                                s.next().and_then(|s| s.parse::<f64>().ok()),
+                                s.next().and_then(|s| s.parse::<f64>().ok()),
                             )
                         })
                     })
@@ -128,7 +121,7 @@ impl DumpSnapshot {
         writeln!(w, "{HEADER_NUM_OF_ATOMS}")?;
         writeln!(w, "{}", self.atoms_count)?;
         writeln!(w, "{HEADER_SYM_BOX} {}", self.sym_box.boundaries)?;
-        for (lo, hi) in izip!(self.sym_box.bbox.lower(), self.sym_box.bbox.upper()) {
+        for (lo, hi) in izip!(self.sym_box.bbox.lower, self.sym_box.bbox.upper) {
             writeln!(w, "{lo} {hi}",)?;
         }
         writeln!(w, "{HEADER_ATOMS} {}", self.get_keys().join(" "))?;
@@ -190,14 +183,13 @@ impl DumpSnapshot {
 
     #[must_use]
     pub fn get_coordinates(&self) -> Vec<XYZ> {
-        #[allow(clippy::cast_possible_truncation)]
         izip!(
-            self.get_property("x").iter(),
-            self.get_property("y").iter(),
-            self.get_property("z").iter(),
+            self.get_property("x").iter().copied(),
+            self.get_property("y").iter().copied(),
+            self.get_property("z").iter().copied(),
         )
         .enumerate()
-        .map(|(i, (&x, &y, &z))| XYZ::from([x as f32, y as f32, z as f32], i))
+        .map(|(i, xyz)| XYZ::new(Into::<[f64; 3]>::into(xyz).into(), i, false))
         .collect()
     }
 }

@@ -1,9 +1,8 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use lammps_util_rust::{
-    DumpFile, clusterize_snapshot, copy_snapshot_with_indices, get_cluster_counts, get_runs_dirs,
+    DumpFile, clusterize_snapshot, copy_snapshot_with_indices, get_clusters, process_results_dir,
 };
-use rayon::{ThreadPoolBuilder, prelude::*};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -30,66 +29,37 @@ struct SingleCMD {
 #[derive(Args)]
 struct MultiCMD {
     results_dir: PathBuf,
-
-    /// Number of threads to run in parallel
-    #[arg(short, long, default_value_t = 2)]
-    threads: usize,
 }
 
 fn do_run_dir(run_dir: &Path) -> Result<()> {
     let dump_final = DumpFile::read(&run_dir.join("dump.final"), &[])?;
     let snapshot_final = clusterize_snapshot(dump_final.get_snapshots()[0], 3.0);
-    let counts = get_cluster_counts(&snapshot_final);
-    let cluster_ids = counts
-        .into_iter()
-        .filter(|(_, count)| *count < 1000)
-        .map(|(id, _)| id)
-        .collect::<Vec<_>>();
-    let clusters = snapshot_final.get_property("cluster");
-    let mut sputter_indices = Vec::new();
-    let mut no_sputter_indices = Vec::new();
-    for (i, cluster) in clusters
-        .iter()
-        .map(|id| *id as usize)
-        .enumerate()
-        .take(snapshot_final.atoms_count)
-    {
-        if cluster_ids.contains(&cluster) {
-            sputter_indices.push(i);
-        } else {
-            no_sputter_indices.push(i);
-        }
-    }
-    let snapshot_sputter = copy_snapshot_with_indices(&snapshot_final, sputter_indices.into_iter());
+    let clusters = get_clusters(&snapshot_final);
+    let sputter_indices = clusters
+        .values()
+        .filter(|atoms| atoms.len() < 1000)
+        .flat_map(|atoms| atoms.iter().copied());
+    let no_sputter_indices = clusters
+        .values()
+        .filter(|atoms| atoms.len() >= 1000)
+        .flat_map(|atoms| atoms.iter().copied());
+    let snapshot_sputter = copy_snapshot_with_indices(&snapshot_final, sputter_indices);
     println!("sputtered: {}", snapshot_sputter.atoms_count);
-    let dump_sputter = DumpFile::new(vec![snapshot_sputter]);
-    dump_sputter.save(&run_dir.join("dump.sputter"))?;
+    DumpFile::new(vec![snapshot_sputter]).save(&run_dir.join("dump.sputter"))?;
     let snapshot_no_sputter =
         copy_snapshot_with_indices(&snapshot_final, no_sputter_indices.into_iter());
-    let dump_no_sputter = DumpFile::new(vec![snapshot_no_sputter]);
-    dump_no_sputter.save(&run_dir.join("dump.no_sputter"))?;
-    Ok(())
-}
-
-fn do_results_dir(results_dir: &Path, threads: usize) -> Result<()> {
-    let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
-    let run_dirs = get_runs_dirs(results_dir)?;
-    tp.install(|| {
-        run_dirs
-            .into_par_iter()
-            .map(|dir| do_run_dir(&dir.path))
-            .collect::<Result<Vec<_>>>()
-    })?;
+    DumpFile::new(vec![snapshot_no_sputter]).save(&run_dir.join("dump.no_sputter"))?;
     Ok(())
 }
 
 fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
-
     match &cli.command {
         Commands::Single(args) => do_run_dir(&args.run_dir)?,
-        Commands::Multi(args) => do_results_dir(&args.results_dir, args.threads)?,
-    };
+        Commands::Multi(args) => {
+            process_results_dir(&args.results_dir, |run_dir| do_run_dir(&run_dir.path))?;
+        }
+    }
     Ok(())
 }

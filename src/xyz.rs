@@ -4,14 +4,15 @@ use std::ops::{Deref, DerefMut};
 
 use crate::SymBox;
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct XYZ {
-    pub coords: Point3,
+    pub coords: Point3<f64>,
     pub index: usize,
+    pub is_ghost: bool,
 }
 
 impl Deref for XYZ {
-    type Target = Point3;
+    type Target = Point3<f64>;
     fn deref(&self) -> &Self::Target {
         &self.coords
     }
@@ -24,34 +25,37 @@ impl DerefMut for XYZ {
 }
 
 impl KdPoint for XYZ {
-    type Scalar = f32;
+    type Scalar = f64;
     type Dim = typenum::U3;
-    fn at(&self, i: usize) -> f32 {
-        self.coords.coords[i]
+    fn at(&self, i: usize) -> f64 {
+        self.coords[i]
     }
 }
 
 impl XYZ {
-    pub fn from(coords: impl Into<Point3>, index: usize) -> Self {
+    #[must_use]
+    pub const fn new(coords: Point3<f64>, index: usize, is_ghost: bool) -> Self {
         Self {
-            coords: coords.into(),
+            coords,
             index,
+            is_ghost,
         }
     }
 
-    #[must_use] pub fn check_cutoff(a: Self, b: Self, cutoff: f32) -> bool {
+    #[must_use]
+    pub fn check_cutoff(a: Self, b: Self, cutoff: f64) -> bool {
         a.distance_squared(*b) <= cutoff * cutoff
     }
 
-    pub fn get_supercell_coords(coords: &mut Vec<Self>, sym_box: &SymBox, cutoff: f32) {
-        let lo = sym_box.bbox.lower();
-        let hi = sym_box.bbox.upper();
+    pub fn get_supercell_coords(coords: &mut Vec<Self>, sym_box: &SymBox, cutoff: f64) {
+        let lo = sym_box.bbox.lower;
+        let hi = sym_box.bbox.upper;
         let shift = sym_box.bbox.dimensions();
         let periods_and_shifts = (-1..=1)
             .flat_map(|px| (-1..=1).map(move |py| (px, py)))
             .flat_map(|(px, py)| (-1..=1).map(move |pz| [px, py, pz]))
             .filter(|periods| periods.iter().any(|&period| period != 0))
-            .map(|periods| Point3::from(periods.map(|p| p as f32)))
+            .map(|periods| Point3::from(periods.map(f64::from)))
             .map(|periods| (periods, shift * periods))
             .collect::<Vec<_>>();
         for atom_idx in 0..coords.len() {
@@ -61,7 +65,11 @@ impl XYZ {
                     -1.0 => coords[atom_idx][i] > hi[i] - cutoff,
                     _ => true,
                 }) {
-                    coords.push(Self::from(*coords[atom_idx] + *shift, coords.len()));
+                    coords.push(Self::new(
+                        *coords[atom_idx] + *shift,
+                        coords[atom_idx].index,
+                        true,
+                    ));
                 }
             }
         }
