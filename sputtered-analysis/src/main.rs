@@ -1,3 +1,5 @@
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
 use anyhow::Result;
 use clap::Parser;
 use lammps_util_rust::{DumpFile, DumpSnapshot, RunDir, process_results_dir};
@@ -11,10 +13,6 @@ struct Cli {
     /// Atom types "<type 1>,<type 2>,...,<type N>", ex. "Si,C,O"
     #[arg(short, long)]
     particles: String,
-
-    /// Number of threads to run in parallel
-    #[arg(short, long, default_value_t = 2)]
-    threads: usize,
 }
 
 struct Atom {
@@ -26,7 +24,7 @@ struct Atom {
 }
 
 impl Atom {
-    fn new(id: usize, atype: usize, coords: [f64; 3], velocity: [f64; 3], mass: f64) -> Self {
+    const fn new(id: usize, atype: usize, coords: [f64; 3], velocity: [f64; 3], mass: f64) -> Self {
         Self {
             _id: id,
             atype,
@@ -48,7 +46,7 @@ struct Cluster {
 
 impl Cluster {
     fn new(atoms: &[Atom], types_map: &HashMap<usize, String>) -> Self {
-        let mut cluster = Cluster {
+        let mut cluster = Self {
             counts: types_map.keys().map(|i| (*i, 0)).collect(),
             ..Default::default()
         };
@@ -59,16 +57,15 @@ impl Cluster {
         }
         cluster.ek = 2.0 * 5.1875 * 1e-5 * cluster.momentum.iter().map(|m| m.powi(2)).sum::<f64>()
             / (2.0 * cluster.mass);
-        cluster.angle = (cluster.momentum[2]
-            / (cluster.momentum[0].powi(2) + cluster.momentum[1].powi(2)).sqrt())
-        .atan();
+        cluster.angle =
+            (cluster.momentum[2] / cluster.momentum[0].hypot(cluster.momentum[1])).atan();
         cluster
     }
 }
 
 fn parse_types(s: &str) -> (HashMap<usize, String>, Vec<String>) {
     let type_names = s
-        .split(":")
+        .split(',')
         .map(|s| s.trim().to_string())
         .collect::<Vec<_>>();
     let types_map = type_names.iter().map(String::from).enumerate().collect();
@@ -88,18 +85,17 @@ fn get_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> Vec<
     let cluster = dump.get_property("cluster");
     let mut clusters = HashMap::new();
     for i in 0..dump.atoms_count {
+        let atom = Atom::new(
+            id[i] as usize,
+            atype[i] as usize,
+            [x[i], y[i], z[i]],
+            [vx[i], vy[i], vz[i]],
+            mass[i],
+        );
         clusters
             .entry(cluster[i] as usize)
-            .and_modify(|v: &mut Vec<_>| {
-                v.push(Atom::new(
-                    id[i] as usize,
-                    atype[i] as usize,
-                    [x[i], y[i], z[i]],
-                    [vx[i], vy[i], vz[i]],
-                    mass[i],
-                ));
-            })
-            .or_insert(Vec::new());
+            .or_insert(Vec::new())
+            .push(atom);
     }
     clusters
         .values()
@@ -117,12 +113,18 @@ fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
     let (types_map, type_names) = parse_types(&cli.particles);
-    let clusters = process_results_dir(&cli.results_dir, cli.threads, |run_dir| {
-        do_single_dir(run_dir, &types_map)
+    let clusters = process_results_dir(&cli.results_dir, |run_dir| {
+        let result = do_single_dir(run_dir, &types_map);
+        println!(
+            "{} {:?}",
+            run_dir.path.to_string_lossy(),
+            result.as_ref().map(Vec::len)
+        );
+        result
     })?;
     println!("# № {} ∑", type_names.join(" "));
-    for (run_dir, clusters) in clusters.into_iter() {
-        for cluster in clusters.into_iter() {
+    for (run_dir, clusters) in clusters {
+        for cluster in clusters {
             let sum = cluster.counts.values().copied().sum::<usize>();
             let mut counts = cluster.counts.iter().collect::<Vec<_>>();
             counts.sort_by(|a, b| a.0.cmp(b.0));
@@ -130,8 +132,8 @@ fn main() -> Result<()> {
                 .into_iter()
                 .map(|(_, c)| c.to_string())
                 .collect::<Vec<_>>()
-                .join("\n");
-            println!("{} {} {sum}", run_dir.num, counts_s);
+                .join("\t");
+            println!("{}\t{}\t{sum}", run_dir.num, counts_s);
         }
     }
     Ok(())
