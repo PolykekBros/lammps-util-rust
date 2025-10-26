@@ -2,7 +2,7 @@
 #![allow(clippy::cast_sign_loss)]
 use anyhow::Result;
 use clap::Parser;
-use lammps_util_rust::{DumpFile, DumpSnapshot, RunDir, process_results_dir};
+use lammps_util_rust::{DumpFile, DumpSnapshot, RunDir, get_clusters, process_results_dir};
 use std::{collections::HashMap, iter, path::PathBuf};
 
 #[derive(Parser)]
@@ -46,20 +46,27 @@ struct Cluster {
 
 impl Cluster {
     fn new(atoms: &[Atom], types_map: &HashMap<usize, String>) -> Self {
-        let mut cluster = Self {
-            counts: types_map.keys().map(|i| (*i, 0)).collect(),
-            ..Default::default()
-        };
+        let mut counts = types_map
+            .keys()
+            .map(|&type_idx| (type_idx, 0))
+            .collect::<HashMap<_, _>>();
+        let mut mass = 0.0;
+        let mut momentum = [0.0; 3];
         for atom in atoms {
-            cluster.mass += atom.mass;
-            iter::zip(&mut cluster.momentum, atom.velocity).for_each(|(m, v)| *m += v * atom.mass);
-            cluster.counts.entry(atom.atype).and_modify(|n| *n += 1);
+            mass += atom.mass;
+            iter::zip(&mut momentum, atom.velocity).for_each(|(m, v)| *m += v * atom.mass);
+            counts.entry(atom.atype - 1).and_modify(|count| *count += 1);
         }
-        cluster.ek = 2.0 * 5.1875 * 1e-5 * cluster.momentum.iter().map(|m| m.powi(2)).sum::<f64>()
-            / (2.0 * cluster.mass);
-        cluster.angle =
-            (cluster.momentum[2] / cluster.momentum[0].hypot(cluster.momentum[1])).atan();
-        cluster
+        let ek =
+            2.0 * 5.1875 * 1e-5 * momentum.iter().map(|m| m.powi(2)).sum::<f64>() / (2.0 * mass);
+        let angle = (momentum[2] / momentum[0].hypot(momentum[1])).atan();
+        Self {
+            mass,
+            counts,
+            momentum,
+            ek,
+            angle,
+        }
     }
 }
 
@@ -72,7 +79,7 @@ fn parse_types(s: &str) -> (HashMap<usize, String>, Vec<String>) {
     (types_map, type_names)
 }
 
-fn get_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> Vec<Cluster> {
+fn analyze_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> Vec<Cluster> {
     let id = dump.get_property("id");
     let atype = dump.get_property("type");
     let x = dump.get_property("x");
@@ -82,30 +89,29 @@ fn get_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> Vec<
     let vy = dump.get_property("vy");
     let vz = dump.get_property("vz");
     let mass = dump.get_property("mass");
-    let cluster = dump.get_property("cluster");
-    let mut clusters = HashMap::new();
-    for i in 0..dump.atoms_count {
-        let atom = Atom::new(
-            id[i] as usize,
-            atype[i] as usize,
-            [x[i], y[i], z[i]],
-            [vx[i], vy[i], vz[i]],
-            mass[i],
-        );
-        clusters
-            .entry(cluster[i] as usize)
-            .or_insert(Vec::new())
-            .push(atom);
-    }
-    clusters
-        .values()
-        .map(|atoms| Cluster::new(atoms, types_map))
+    get_clusters(dump)
+        .into_values()
+        .map(|atoms_idx| {
+            let atoms = atoms_idx
+                .into_iter()
+                .map(|atom_idx| {
+                    Atom::new(
+                        id[atom_idx] as usize,
+                        atype[atom_idx] as usize,
+                        [x[atom_idx], y[atom_idx], z[atom_idx]],
+                        [vx[atom_idx], vy[atom_idx], vz[atom_idx]],
+                        mass[atom_idx],
+                    )
+                })
+                .collect::<Vec<_>>();
+            Cluster::new(&atoms, types_map)
+        })
         .collect()
 }
 
 fn do_single_dir(dir: &RunDir, types_map: &HashMap<usize, String>) -> Result<Vec<Cluster>> {
     let dump = DumpFile::read(&dir.path.join("dump.sputter"), &[])?;
-    let clusters = get_clusters(dump.get_snapshots()[0], types_map);
+    let clusters = analyze_clusters(dump.get_snapshots()[0], types_map);
     Ok(clusters)
 }
 
