@@ -38,7 +38,7 @@ impl Atom {
 #[derive(Default)]
 struct Cluster {
     mass: f64,
-    counts: HashMap<usize, usize>,
+    counts: Vec<usize>,
     momentum: [f64; 3],
     ek: f64,
     angle: f64,
@@ -46,16 +46,13 @@ struct Cluster {
 
 impl Cluster {
     fn new(atoms: &[Atom], types_map: &HashMap<usize, String>) -> Self {
-        let mut counts = types_map
-            .keys()
-            .map(|&type_idx| (type_idx, 0))
-            .collect::<HashMap<_, _>>();
+        let mut counts = vec![0; types_map.len()];
         let mut mass = 0.0;
         let mut momentum = [0.0; 3];
         for atom in atoms {
             mass += atom.mass;
             iter::zip(&mut momentum, atom.velocity).for_each(|(m, v)| *m += v * atom.mass);
-            counts.entry(atom.atype - 1).and_modify(|count| *count += 1);
+            counts[atom.atype - 1] += 1;
         }
         let ek =
             2.0 * 5.1875 * 1e-5 * momentum.iter().map(|m| m.powi(2)).sum::<f64>() / (2.0 * mass);
@@ -130,17 +127,19 @@ fn main() -> Result<()> {
     })?;
     println!("# № {} ∑", type_names.join(" "));
     for (run_dir, clusters) in clusters {
-        for cluster in clusters {
-            let sum = cluster.counts.values().copied().sum::<usize>();
-            let mut counts = cluster.counts.iter().collect::<Vec<_>>();
-            counts.sort_by(|a, b| a.0.cmp(b.0));
-            let counts_s = counts
-                .into_iter()
-                .map(|(_, c)| c.to_string())
-                .collect::<Vec<_>>()
-                .join("\t");
-            println!("{}\t{}\t{sum}", run_dir.num, counts_s);
+        let counts = clusters.into_iter().map(|cluster| cluster.counts).fold(
+            vec![0, types_map.len()],
+            |mut agg, counts| {
+                iter::zip(&mut agg, counts).for_each(|(a, b)| *a += b);
+                agg
+            },
+        );
+        let sum = counts.iter().sum::<usize>();
+        print!("{}\t", run_dir.num);
+        for count in counts {
+            print!("{count}\t");
         }
+        println!("{sum}");
     }
     Ok(())
 }
