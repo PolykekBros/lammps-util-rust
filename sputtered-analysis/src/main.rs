@@ -128,7 +128,7 @@ fn main() -> Result<()> {
     println!("# № {} ∑", type_names.join(" "));
     for (run_dir, clusters) in clusters {
         let counts = clusters.into_iter().map(|cluster| cluster.counts).fold(
-            vec![0, types_map.len()],
+            vec![0; types_map.len()],
             |mut agg, counts| {
                 iter::zip(&mut agg, counts).for_each(|(a, b)| *a += b);
                 agg
