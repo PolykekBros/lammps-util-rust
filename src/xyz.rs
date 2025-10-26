@@ -1,6 +1,9 @@
 use geomutil_util::Point3;
 use kd_tree::KdPoint;
-use std::ops::{Deref, DerefMut};
+use std::{
+    array,
+    ops::{Deref, DerefMut},
+};
 
 use crate::SymBox;
 
@@ -48,12 +51,20 @@ impl XYZ {
     }
 
     pub fn get_supercell_coords(coords: &mut Vec<Self>, sym_box: &SymBox, cutoff: f64) {
+        let boundaries = sym_box.boundaries.split_whitespace().collect::<Vec<_>>();
+        let periods: [_; 3] = array::from_fn(|i| match boundaries[i] {
+            "pp" => vec![-1, 0, 1],
+            _ => vec![0],
+        });
+        assert_eq!(boundaries.len(), 3);
         let lo = sym_box.bbox.lower;
         let hi = sym_box.bbox.upper;
         let shift = sym_box.bbox.dimensions();
-        let periods_and_shifts = (-1..=1)
-            .flat_map(|px| (-1..=1).map(move |py| (px, py)))
-            .flat_map(|(px, py)| (-1..=1).map(move |pz| [px, py, pz]))
+        let periods_and_shifts = periods[0]
+            .iter()
+            .copied()
+            .flat_map(|px| periods[1].iter().copied().map(move |py| (px, py)))
+            .flat_map(|(px, py)| periods[2].iter().copied().map(move |pz| [px, py, pz]))
             .filter(|periods| periods.iter().any(|&period| period != 0))
             .map(|periods| Point3::from(periods.map(f64::from)))
             .map(|periods| (periods, shift * periods))
