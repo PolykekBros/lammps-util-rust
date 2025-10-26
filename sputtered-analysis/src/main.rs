@@ -118,7 +118,7 @@ fn main() -> Result<()> {
     let (types_map, type_names) = parse_types(&cli.particles);
     let clusters = process_results_dir(&cli.results_dir, |run_dir| {
         let result = do_single_dir(run_dir, &types_map);
-        println!(
+        eprintln!(
             "{} {:?}",
             run_dir.path.to_string_lossy(),
             result.as_ref().map(Vec::len)
