@@ -1,3 +1,4 @@
+#![allow(clippy::cast_precision_loss)]
 use anyhow::Result;
 use clap::Parser;
 use itertools::Itertools;
@@ -14,38 +15,38 @@ struct Cli {
     timestep: Option<u64>,
 
     #[arg(short, long)]
-    cutoff: f32,
+    cutoff: f64,
 
     #[arg(short, long)]
     n_bins: usize,
 }
 
-fn get_bins(cutoff: f32, n: usize) -> Vec<(f32, f32)> {
-    let delta = cutoff / n as f32;
+fn get_bins(cutoff: f64, n: usize) -> Vec<(f64, f64)> {
+    let delta = cutoff / n as f64;
     (0..n)
-        .map(|i| i as f32)
+        .map(|i| i as f64)
         .map(|i| (i * delta, (i + 1.0) * delta))
         .collect()
 }
 
 fn normalize(
-    rdf: impl IntoIterator<Item = ((f32, f32), usize)>,
+    rdf: impl IntoIterator<Item = ((f64, f64), usize)>,
     dump: &DumpSnapshot,
-) -> Vec<(f32, f32)> {
-    let vol = dump.sym_box.volume();
-    let num = dump.atoms_count as f32;
+) -> Vec<(f64, f64)> {
+    let vol = dump.sym_box.bbox.volume();
+    let num = dump.atoms_count as f64;
     let rho = num / vol;
     rdf.into_iter()
         .map(|((lo, hi), n)| {
-            let vshell = 4.0 / 3.0 * std::f32::consts::PI * (hi.powi(3) - lo.powi(3));
+            let vshell = 4.0 / 3.0 * std::f64::consts::PI * (hi.powi(3) - lo.powi(3));
             let nnorm = rho * vshell;
-            let n = n as f32 / (nnorm * num);
+            let n = n as f64 / (nnorm * num);
             (hi.midpoint(lo), n)
         })
         .collect()
 }
 
-fn get_rdf(cutoff: f32, n: usize, dump: &DumpSnapshot) -> Vec<(f32, f32)> {
+fn get_rdf(cutoff: f64, n: usize, dump: &DumpSnapshot) -> Vec<(f64, f64)> {
     let bins = get_bins(cutoff, n);
     let mut coords = dump.get_coordinates();
     XYZ::get_supercell_coords(&mut coords, &dump.sym_box, cutoff);
@@ -53,7 +54,7 @@ fn get_rdf(cutoff: f32, n: usize, dump: &DumpSnapshot) -> Vec<(f32, f32)> {
     let rdf = kdtree
         .items()
         .par_iter()
-        .filter(|atom| atom.index < dump.atoms_count)
+        .filter(|atom| !atom.is_ghost)
         .map(|atom| {
             let d_sq = kdtree
                 .within_radius(atom, cutoff)
