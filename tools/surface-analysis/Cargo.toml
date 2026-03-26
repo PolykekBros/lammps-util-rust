@@ -1,0 +1,15 @@
+[package]
+name = "surface-analysis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lammps-util-rust = { path = "../../crates/lammps"}
+log = { workspace=true }
+env_logger = { workspace=true }
+clap = { workspace = true }
+colorgrad = { workspace = true }
+itertools = { workspace = true }
+anyhow = { workspace = true }
+plotters = { workspace = true }
+geomutil_util = "0.1.2"

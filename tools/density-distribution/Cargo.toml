@@ -1,0 +1,12 @@
+[package]
+name = "density-distribution"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lammps-util-rust = { path = "../../crates/lammps"}
+log = { workspace=true }
+env_logger = { workspace=true }
+clap = { workspace = true }
+plotters = { workspace = true }
+# geomutil = { path = "/home/denis/Desktop/src/geomutil-rust" }

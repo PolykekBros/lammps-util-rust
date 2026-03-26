@@ -1,30 +1,23 @@
-[package]
-name = "lammps-util-rust"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-typenum = "1.17.0"
-geomutil_util = {workspace=true}
-log = {workspace=true}
-kd-tree = { workspace=true }
-anyhow = { workspace=true }
-itertools = { workspace=true }
-rayon = { workspace=true }
-
-[dev-dependencies]
-assert_float_eq = { version = "1.1.4", features = ["std"] }
-
 [workspace]
-members = ["adf", "blob", "blob_5", "carbon-structure-analysis",
-  "component-shift",
-  "crater-analysis",
-  "density-distribution", "detect-sputtered", "rdf",
-  "remove-sputtered",
-  "rim-analysis", "sputtered-analysis",
-  "surface-analysis", "surface-heights-radial",
-  "zero-lvl"
+members = [
+    "crates/lammps",
+    "tools/adf",
+    "tools/blob",
+    "tools/blob_5",
+    "tools/carbon-structure-analysis",
+    "tools/component-shift",
+    "tools/crater-analysis",
+    "tools/density-distribution",
+    "tools/detect-sputtered",
+    "tools/rdf",
+    "tools/remove-sputtered",
+    "tools/rim-analysis",
+    "tools/sputtered-analysis",
+    "tools/surface-analysis",
+    "tools/surface-heights-radial",
+    "tools/zero-lvl",
 ]
+resolver = "2"
 
 [workspace.dependencies]
 kd-tree = "0.6.0"
