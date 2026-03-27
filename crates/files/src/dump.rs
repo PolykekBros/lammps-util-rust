@@ -33,6 +33,11 @@ impl Dump {
         }
     }
 
+    /// Opens a `Dump` from a file path given a list of timesteps.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Error` if the dump cannot be opened or parsed.
     pub fn open<P: AsRef<Path>>(path: P, timesteps: &[u64]) -> Result<Self> {
         let mut parser = Parser::open(path)?;
         let mut snapshots = HashMap::<u64, Snapshot>::new();
@@ -55,6 +60,11 @@ impl Dump {
         Ok(Self::new(snapshots))
     }
 
+    /// Saves the `Dump` to a file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `io::Error` if the dump cannot be saved.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let f = File::create(path)?;
         let mut w = io::BufWriter::new(f);
