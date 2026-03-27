@@ -1,4 +1,4 @@
-use std::{fmt, error, io, num};
+use std::{error, fmt, io, num};
 
 pub struct Error {
     err: Box<ErrorImpl>,
@@ -34,8 +34,29 @@ impl Error {
     /// Internal helper to create a new error
     pub(crate) fn new(kind: ErrorKind, content: String, line: usize, column: usize) -> Self {
         Self {
-            err: Box::new(ErrorImpl { kind, content, line, column }),
+            err: Box::new(ErrorImpl {
+                kind,
+                content,
+                line,
+                column,
+            }),
         }
+    }
+
+    pub fn kind(&self) -> &ErrorKind {
+        &self.err.kind
+    }
+
+    pub fn content(&self) -> &str {
+        &self.err.content
+    }
+
+    pub fn line(&self) -> usize {
+        self.err.line
+    }
+
+    pub fn column(&self) -> usize {
+        self.err.column
     }
 }
 
@@ -76,7 +97,7 @@ impl fmt::Display for Error {
         if !self.err.content.is_empty() {
             write!(f, " (found: {:?})", self.err.content)?;
         }
-        
+
         Ok(())
     }
 }

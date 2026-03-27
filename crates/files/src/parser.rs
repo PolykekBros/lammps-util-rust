@@ -1,10 +1,10 @@
 use std::{
     fs::File,
+    io::{BufRead, BufReader, Lines},
     path::Path,
-    io::{Lines, BufRead, BufReader},
 };
 
-use crate::error::{Result, Error};
+use crate::error::{Error, Result};
 
 #[derive(Debug)]
 pub struct Parser<B> {
@@ -16,7 +16,7 @@ pub struct Parser<B> {
 impl Parser<BufReader<File>> {
     pub fn open<P: AsRef<Path>>(p: P) -> Result<Self> {
         let f = File::open(p)?;
-        let br = BufReader::new(f); 
+        let br = BufReader::new(f);
         Ok(Self::new(br))
     }
 }
@@ -31,10 +31,9 @@ impl<B: BufRead> Parser<B> {
     }
 
     pub fn next(&mut self) -> Option<Result<String>> {
-        let next = self.lines.next()?
-            .map_err(Error::from);
+        let next = self.lines.next()?.map_err(Error::from);
         if !self.is_err {
-            self.current += 1;        
+            self.current += 1;
         }
         if next.is_err() {
             self.is_err = true;

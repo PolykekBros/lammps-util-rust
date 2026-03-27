@@ -1,5 +1,5 @@
 pub mod error;
-pub mod snapshot;
 mod parser;
+pub mod snapshot;
 
-pub use snapshot::Snapshot;
+pub use snapshot::{Snapshot, Snapshots};
