@@ -33,6 +33,11 @@ pub struct SnapshotMeta {
 }
 
 impl SnapshotMeta {
+    /// Parses a `SnapshotMeta` from a `Parser`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Error` if the snapshot meta cannot be parsed.
     pub fn parse<B: BufRead>(parser: &mut Parser<B>) -> Result<Self> {
         let timestep = parse_timestep(parser)?;
         let atoms_count = parse_atom_count(parser)?;
@@ -168,6 +173,11 @@ impl Snapshot {
         Self { meta, keys, atoms }
     }
 
+    /// Parses a `Snapshot` from a `Parser` given a `SnapshotMeta`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Error` if the snapshot cannot be parsed.
     pub fn parse<B: BufRead>(parser: &mut Parser<B>, meta: SnapshotMeta) -> Result<Self> {
         let mut snapshot = Self::new(meta);
         for i in 0..snapshot.get_atoms_count() {
@@ -199,6 +209,11 @@ impl Snapshot {
         Ok(snapshot)
     }
 
+    /// Writes the `Snapshot` to a `Write`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `io::Error` if the write operation fails.
     pub fn write<W>(&self, w: &mut W) -> io::Result<()>
     where
         W: io::Write,

@@ -26,6 +26,7 @@ pub enum ErrorKind {
     ExpectedAtomsHeader,
     MissingAtomKeys,
     DuplicateAtomKeys(String),
+    DuplicateTimestep(u64),
     MissingAtomRowField,
     InvalidAtomRowField(num::ParseFloatError),
     Io(io::Error),
@@ -42,14 +43,17 @@ impl Error {
         }
     }
 
+    #[must_use]
     pub fn kind(&self) -> &ErrorKind {
         &self.err.kind
     }
 
+    #[must_use]
     pub fn content(&self) -> &str {
         &self.err.content
     }
 
+    #[must_use]
     pub fn line(&self) -> usize {
         self.err.line
     }
@@ -81,6 +85,7 @@ impl fmt::Display for Error {
             ErrorKind::ExpectedAtomsHeader => write!(f, "expected {HEADER_ATOMS}"),
             ErrorKind::MissingAtomKeys => write!(f, "missing atom attribute keys"),
             ErrorKind::DuplicateAtomKeys(key) => write!(f, "duplicate atom key: '{key}'"),
+            ErrorKind::DuplicateTimestep(timestep) => write!(f, "duplicate timestep: '{timestep}'"),
             ErrorKind::MissingAtomRowField => write!(f, "missing field in atom row"),
             ErrorKind::InvalidAtomRowField(e) => write!(f, "invalid atom field: {e}"),
             ErrorKind::Io(e) => return write!(f, "IO error: {e}"), // Exit early, no content to show
@@ -98,10 +103,8 @@ impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match &self.err.kind {
             ErrorKind::Io(e) => Some(e),
-            ErrorKind::InvalidTimestep(e) => Some(e),
-            ErrorKind::InvalidAtomCount(e) => Some(e),
-            ErrorKind::InvalidSymboxField(e) => Some(e),
-            ErrorKind::InvalidAtomRowField(e) => Some(e),
+            ErrorKind::InvalidTimestep(e) | ErrorKind::InvalidAtomCount(e) => Some(e),
+            ErrorKind::InvalidSymboxField(e) | ErrorKind::InvalidAtomRowField(e) => Some(e),
             _ => None,
         }
     }
