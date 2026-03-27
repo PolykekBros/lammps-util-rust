@@ -92,7 +92,7 @@ impl fmt::Display for Error {
             ErrorKind::MissingAtomRowField => write!(f, "missing field in atom row"),
             ErrorKind::InvalidAtomRowField(e) => write!(f, "invalid atom field: {e}"),
             ErrorKind::Io(e) => return write!(f, "IO error: {e}"), // Exit early, no content to show
-        }
+        }?;
 
         if !self.err.content.is_empty() {
             write!(f, " (found: {:?})", self.err.content)?;
