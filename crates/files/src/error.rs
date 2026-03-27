@@ -1,5 +1,7 @@
 use std::{error, fmt, io, num};
 
+use crate::snapshot::{HEADER_ATOMS, HEADER_NUM_OF_ATOMS, HEADER_SYM_BOX, HEADER_TIMESTEP};
+
 pub struct Error {
     err: Box<ErrorImpl>,
 }
@@ -8,7 +10,6 @@ struct ErrorImpl {
     kind: ErrorKind,
     content: String,
     line: usize,
-    column: usize,
 }
 
 #[derive(Debug)]
@@ -31,14 +32,12 @@ pub enum ErrorKind {
 }
 
 impl Error {
-    /// Internal helper to create a new error
-    pub(crate) fn new(kind: ErrorKind, content: String, line: usize, column: usize) -> Self {
+    pub(crate) fn new(kind: ErrorKind, content: String, line: usize) -> Self {
         Self {
             err: Box::new(ErrorImpl {
                 kind,
                 content,
                 line,
-                column,
             }),
         }
     }
@@ -54,39 +53,32 @@ impl Error {
     pub fn line(&self) -> usize {
         self.err.line
     }
-
-    pub fn column(&self) -> usize {
-        self.err.column
-    }
 }
 
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // For debugging, we show the full internal state
         f.debug_struct("Error")
             .field("kind", &self.err.kind)
             .field("content", &self.err.content)
             .field("line", &self.err.line)
-            .field("column", &self.err.column)
             .finish()
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "error at {}:{}: ", self.err.line, self.err.column)?;
-
+        write!(f, "error at line {}: ", self.err.line)?;
         match &self.err.kind {
-            ErrorKind::ExpectedTimestepHeader => write!(f, "expected ITEM: TIMESTEP"),
+            ErrorKind::ExpectedTimestepHeader => write!(f, "expected {HEADER_TIMESTEP}"),
             ErrorKind::MissingTimestep => write!(f, "missing timestep value"),
             ErrorKind::InvalidTimestep(e) => write!(f, "invalid timestep: {e}"),
-            ErrorKind::ExpectedAtomCountHeader => write!(f, "expected ITEM: NUMBER OF ATOMS"),
+            ErrorKind::ExpectedAtomCountHeader => write!(f, "expected {HEADER_NUM_OF_ATOMS}"),
             ErrorKind::MissingAtomCount => write!(f, "missing atom count"),
             ErrorKind::InvalidAtomCount(e) => write!(f, "invalid atom count: {e}"),
-            ErrorKind::ExpectedSymboxHeader => write!(f, "expected ITEM: BOX BOUNDS"),
+            ErrorKind::ExpectedSymboxHeader => write!(f, "expected {HEADER_SYM_BOX}"),
             ErrorKind::MissingSymboxField => write!(f, "missing box dimension field"),
             ErrorKind::InvalidSymboxField(e) => write!(f, "invalid box dimension: {e}"),
-            ErrorKind::ExpectedAtomsHeader => write!(f, "expected ITEM: ATOMS"),
+            ErrorKind::ExpectedAtomsHeader => write!(f, "expected {HEADER_ATOMS}"),
             ErrorKind::MissingAtomKeys => write!(f, "missing atom attribute keys"),
             ErrorKind::DuplicateAtomKeys(key) => write!(f, "duplicate atom key: '{key}'"),
             ErrorKind::MissingAtomRowField => write!(f, "missing field in atom row"),
@@ -119,6 +111,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
-        Self::new(ErrorKind::Io(err), String::new(), 0, 0)
+        Self::new(ErrorKind::Io(err), String::new(), 0)
     }
 }

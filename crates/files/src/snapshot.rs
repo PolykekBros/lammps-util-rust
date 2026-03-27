@@ -1,8 +1,8 @@
 use std::{
     collections::HashMap,
-    fs::File,
-    io::{BufRead, BufReader},
-    path::Path,
+    fmt,
+    io::{self, BufRead},
+    iter,
 };
 
 // Assuming geomutil_util is available as per previous implementation
@@ -25,324 +25,335 @@ pub struct SymBox {
 }
 
 #[derive(Debug, Clone)]
-pub struct Snapshot {
+pub struct SnapshotMeta {
     pub timestep: u64,
     pub atoms_count: usize,
     pub sym_box: SymBox,
-    pub keys: Vec<String>,
-    pub atoms: Vec<Vec<f64>>,
+    pub keys: HashMap<String, usize>,
 }
 
-impl Snapshot {
+impl SnapshotMeta {
     pub fn parse<B: BufRead>(parser: &mut Parser<B>) -> Result<Self> {
         let timestep = parse_timestep(parser)?;
         let atoms_count = parse_atom_count(parser)?;
         let sym_box = parse_sym_box(parser)?;
-        let (keys, atoms) = parse_atoms(parser, atoms_count)?;
-
+        let keys = parse_keys(parser)?;
         Ok(Self {
             timestep,
             atoms_count,
             sym_box,
             keys,
-            atoms,
         })
-    }
-
-    pub fn get_atom_attr(&self, atom_idx: usize, key: &str) -> Option<f64> {
-        let key_idx = self.keys.iter().position(|k| k == key)?;
-        self.atoms.get(atom_idx)?.get(key_idx).copied()
-    }
-}
-
-pub struct Snapshots<B> {
-    parser: Parser<B>,
-}
-
-impl Snapshots<BufReader<File>> {
-    pub fn open<P: AsRef<Path>>(p: P) -> Result<Self> {
-        let parser = Parser::open(p)?;
-        Ok(Self::new(parser))
-    }
-}
-
-impl<B: BufRead> Snapshots<B> {
-    pub fn new(parser: Parser<B>) -> Self {
-        Self { parser }
-    }
-}
-
-impl<B: BufRead> Iterator for Snapshots<B> {
-    type Item = Result<Snapshot>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match Snapshot::parse(&mut self.parser) {
-            Ok(s) => Some(Ok(s)),
-            Err(e) => {
-                // If we are at the very end of the file and ExpectedTimestepHeader happened with empty content,
-                // it means parser.next() returned None, which indicates EOF before any new snapshot.
-                match e.kind() {
-                    ErrorKind::ExpectedTimestepHeader if e.content().is_empty() => None,
-                    _ => Some(Err(e)),
-                }
-            }
-        }
     }
 }
 
 fn parse_timestep<B: BufRead>(parser: &mut Parser<B>) -> Result<u64> {
-    let line = parser.next().ok_or_else(|| {
-        Error::new(
-            ErrorKind::ExpectedTimestepHeader,
-            String::new(),
-            parser.current(),
-            1,
-        )
-    })??;
-    if line.trim() != HEADER_TIMESTEP {
+    let line = parser.next().transpose()?.unwrap_or_default();
+    if !line.trim().starts_with(HEADER_TIMESTEP) {
         return Err(Error::new(
-            ErrorKind::ExpectedTimestepHeader,
+            ErrorKind::ExpectedSymboxHeader,
             line,
             parser.current(),
-            1,
         ));
     }
-    let timestep = parser.next().ok_or_else(|| {
-        Error::new(
-            ErrorKind::MissingTimestep,
-            String::new(),
-            parser.current(),
-            1,
-        )
-    })??;
-    timestep.parse::<u64>().map_err(|e| {
-        Error::new(
-            ErrorKind::InvalidTimestep(e),
-            val_line,
-            parser.current(),
-            1,
-        )
-    })
+    let timestep = parser
+        .next()
+        .ok_or_else(|| Error::new(ErrorKind::MissingTimestep, String::new(), parser.current()))??;
+    timestep
+        .parse()
+        .map_err(|e| Error::new(ErrorKind::InvalidTimestep(e), timestep, parser.current()))
 }
 
 fn parse_atom_count<B: BufRead>(parser: &mut Parser<B>) -> Result<usize> {
-    let line = parser.next().ok_or_else(|| {
-        Error::new(
-            ErrorKind::ExpectedAtomCountHeader,
-            String::new(),
-            parser.current(),
-            1,
-        )
-    })??;
-
-    if line.trim() != HEADER_NUM_OF_ATOMS {
-        let col = line.find(line.trim()).unwrap_or(0) + 1;
+    let line = parser.next().transpose()?.unwrap_or_default();
+    if !line.trim().starts_with(HEADER_NUM_OF_ATOMS) {
         return Err(Error::new(
-            ErrorKind::ExpectedAtomCountHeader,
+            ErrorKind::ExpectedSymboxHeader,
             line,
             parser.current(),
-            col,
         ));
     }
-
-    let val_line = parser.next().ok_or_else(|| {
-        Error::new(
-            ErrorKind::MissingAtomCount,
-            String::new(),
-            parser.current(),
-            1,
-        )
+    let atom_count = parser.next().ok_or_else(|| {
+        Error::new(ErrorKind::MissingAtomCount, String::new(), parser.current())
     })??;
-
-    let trimmed = val_line.trim();
-    if trimmed.is_empty() {
-        return Err(Error::new(
-            ErrorKind::MissingAtomCount,
-            val_line,
-            parser.current(),
-            1,
-        ));
-    }
-
-    let col = val_line.find(trimmed).unwrap_or(0) + 1;
-    trimmed.parse::<usize>().map_err(|e| {
-        Error::new(
-            ErrorKind::InvalidAtomCount(e),
-            val_line,
-            parser.current(),
-            col,
-        )
-    })
+    atom_count
+        .parse()
+        .map_err(|e| Error::new(ErrorKind::InvalidAtomCount(e), atom_count, parser.current()))
 }
 
 fn parse_sym_box<B: BufRead>(parser: &mut Parser<B>) -> Result<SymBox> {
-    let line = parser.next().ok_or_else(|| {
-        Error::new(
-            ErrorKind::ExpectedSymboxHeader,
-            String::new(),
-            parser.current(),
-            1,
-        )
-    })??;
-
+    let line = parser.next().transpose()?.unwrap_or_default();
     if !line.trim().starts_with(HEADER_SYM_BOX) {
-        let col = line.find(line.trim()).unwrap_or(0) + 1;
         return Err(Error::new(
             ErrorKind::ExpectedSymboxHeader,
             line,
             parser.current(),
-            col,
         ));
     }
-
-    let header_end = line.find(HEADER_SYM_BOX).unwrap() + HEADER_SYM_BOX.len();
-    let boundaries = line[header_end..].trim().to_string();
-
-    let mut bounds = [[0.0f64; 2]; 3];
+    let boundaries = line[HEADER_SYM_BOX.len()..].trim().to_owned();
+    let mut lo = Point3::default();
+    let mut hi = Point3::default();
     for i in 0..3 {
-        let b_line = parser.next().ok_or_else(|| {
-            Error::new(
-                ErrorKind::MissingSymboxField,
-                String::new(),
-                parser.current(),
-                1,
-            )
-        })??;
-
-        let tokens = get_tokens(&b_line);
-        if tokens.len() < 2 {
+        let line = parser.next().transpose()?.unwrap_or_default();
+        let pair = line
+            .split_whitespace()
+            .map(|s| {
+                s.parse::<f64>().map_err(|e| {
+                    let line = line.clone();
+                    Error::new(ErrorKind::InvalidSymboxField(e), line, parser.current())
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if pair.len() < 2 {
             return Err(Error::new(
                 ErrorKind::MissingSymboxField,
-                b_line,
+                line,
                 parser.current(),
-                1,
             ));
         }
-
-        for j in 0..2 {
-            let (token, col) = tokens[j];
-            bounds[i][j] = token.parse::<f64>().map_err(|e| {
-                Error::new(
-                    ErrorKind::InvalidSymboxField(e),
-                    b_line.clone(),
-                    parser.current(),
-                    col,
-                )
-            })?;
-        }
+        lo[i] = pair[0];
+        hi[i] = pair[1];
     }
-
     Ok(SymBox {
         boundaries,
-        bbox: BoundingBox3::new(
-            Point3 {
-                coords: [bounds[0][0], bounds[1][0], bounds[2][0]],
-            },
-            Point3 {
-                coords: [bounds[0][1], bounds[1][1], bounds[2][1]],
-            },
-        ),
+        bbox: BoundingBox3::new(lo, hi),
     })
 }
 
-fn parse_atoms<B: BufRead>(
-    parser: &mut Parser<B>,
-    count: usize,
-) -> Result<(Vec<String>, Vec<Vec<f64>>)> {
-    let line = parser.next().ok_or_else(|| {
-        Error::new(
-            ErrorKind::ExpectedAtomsHeader,
-            String::new(),
-            parser.current(),
-            1,
-        )
-    })??;
-
+fn parse_keys<B: BufRead>(parser: &mut Parser<B>) -> Result<HashMap<String, usize>> {
+    let line = parser.next().transpose()?.unwrap_or_default();
     if !line.trim().starts_with(HEADER_ATOMS) {
-        let col = line.find(line.trim()).unwrap_or(0) + 1;
         return Err(Error::new(
             ErrorKind::ExpectedAtomsHeader,
             line,
             parser.current(),
-            col,
         ));
     }
-
-    let header_pos = line.find(HEADER_ATOMS).unwrap();
-    let header_end = header_pos + HEADER_ATOMS.len();
-    let key_tokens = get_tokens(&line[header_end..]);
-
-    if key_tokens.is_empty() {
+    let tokens = line[HEADER_ATOMS.len()..].trim();
+    let mut keys = HashMap::new();
+    for (idx, key) in tokens.split_whitespace().enumerate() {
+        if keys.contains_key(key) {
+            return Err(Error::new(
+                ErrorKind::DuplicateAtomKeys(key.to_owned()),
+                line.clone(),
+                parser.current(),
+            ));
+        }
+        keys.insert(key.to_owned(), idx);
+    }
+    if keys.is_empty() {
         return Err(Error::new(
             ErrorKind::MissingAtomKeys,
-            line,
+            line.clone(),
             parser.current(),
-            header_end + 1,
         ));
     }
-
-    let mut keys = Vec::with_capacity(key_tokens.len());
-    let mut seen = HashMap::new();
-    for (key, col_in_part) in key_tokens {
-        let absolute_col = header_end + col_in_part;
-        if seen.insert(key, ()).is_some() {
-            return Err(Error::new(
-                ErrorKind::DuplicateAtomKeys(key.to_string()),
-                line,
-                parser.current(),
-                absolute_col,
-            ));
-        }
-        keys.push(key.to_string());
-    }
-
-    let mut atoms = Vec::with_capacity(count);
-    for _ in 0..count {
-        let a_line = parser.next().ok_or_else(|| {
-            Error::new(
-                ErrorKind::MissingAtomRowField,
-                String::new(),
-                parser.current(),
-                1,
-            )
-        })??;
-
-        let tokens = get_tokens(&a_line);
-        if tokens.len() != keys.len() {
-            return Err(Error::new(
-                ErrorKind::MissingAtomRowField,
-                a_line,
-                parser.current(),
-                1,
-            ));
-        }
-
-        let mut row = Vec::with_capacity(keys.len());
-        for (token, col) in tokens {
-            let val = token.parse::<f64>().map_err(|e| {
-                Error::new(
-                    ErrorKind::InvalidAtomRowField(e),
-                    a_line.clone(),
-                    parser.current(),
-                    col,
-                )
-            })?;
-            row.push(val);
-        }
-        atoms.push(row);
-    }
-
-    Ok((keys, atoms))
+    Ok(keys)
 }
 
-/// Helper to get tokens with their 1-based column positions
-fn get_tokens(line: &str) -> Vec<(&str, usize)> {
-    let mut tokens = Vec::new();
-    let mut last_pos = 0;
-    for token in line.split_whitespace() {
-        let pos = line[last_pos..].find(token).unwrap() + last_pos;
-        tokens.push((token, pos + 1));
-        last_pos = pos + token.len();
+#[derive(Clone)]
+pub struct Snapshot {
+    meta: SnapshotMeta,
+    keys: Vec<String>,
+    atoms: Vec<f64>,
+}
+
+impl Snapshot {
+    #[must_use]
+    pub fn new(meta: SnapshotMeta) -> Self {
+        let atoms = vec![0.0; meta.atoms_count * meta.keys.len()];
+        let mut keys: Vec<(&String, &usize)> = meta.keys.iter().collect();
+        keys.sort_by(|a, b| a.1.cmp(b.1));
+        let keys = keys.into_iter().map(|i| i.0.to_owned()).collect();
+        Self { meta, keys, atoms }
     }
-    tokens
+
+    pub fn parse<B: BufRead>(parser: &mut Parser<B>, meta: SnapshotMeta) -> Result<Self> {
+        let mut snapshot = Self::new(meta);
+        for i in 0..snapshot.get_atoms_count() {
+            let line = parser.next().transpose()?.unwrap_or_default();
+            let values = line
+                .split_whitespace()
+                .map(|s| {
+                    s.parse::<f64>().map_err(|e| {
+                        let line = line.clone();
+                        Error::new(
+                            ErrorKind::InvalidAtomRowField(e),
+                            line.clone(),
+                            parser.current(),
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if values.len() != snapshot.get_keys().len() {
+                return Err(Error::new(
+                    ErrorKind::MissingAtomRowField,
+                    line.clone(),
+                    parser.current(),
+                ));
+            }
+            for (j, val) in values.into_iter().enumerate() {
+                snapshot.set_atom_value(j, i, val);
+            }
+        }
+        Ok(snapshot)
+    }
+
+    pub fn write<W>(&self, w: &mut W) -> io::Result<()>
+    where
+        W: io::Write,
+    {
+        writeln!(w, "{HEADER_TIMESTEP}")?;
+        writeln!(w, "{}", self.get_timestep())?;
+        writeln!(w, "{HEADER_NUM_OF_ATOMS}")?;
+        writeln!(w, "{}", self.get_atoms_count())?;
+        writeln!(w, "{HEADER_SYM_BOX} {}", self.get_symbox().boundaries)?;
+        for (lo, hi) in iter::zip(self.get_symbox().bbox.lower, self.get_symbox().bbox.upper) {
+            writeln!(w, "{lo} {hi}",)?;
+        }
+        writeln!(w, "{HEADER_ATOMS} {}", self.get_keys().join(" "))?;
+        for i in 0..self.get_atoms_count() {
+            write!(w, "{}", self.atoms[i])?;
+            for j in 1..self.keys.len() {
+                write!(w, " {}", self.get_atom_value(j, i))?;
+            }
+            writeln!(w)?;
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn get_atoms_count(&self) -> usize {
+        self.meta.atoms_count
+    }
+
+    #[must_use]
+    pub fn get_timestep(&self) -> u64 {
+        self.meta.timestep
+    }
+
+    #[must_use]
+    pub fn get_symbox(&self) -> &SymBox {
+        &self.meta.sym_box
+    }
+
+    #[must_use]
+    pub const fn get_keys_map(&self) -> &HashMap<String, usize> {
+        &self.meta.keys
+    }
+
+    #[must_use]
+    pub fn get_keys(&self) -> &[String] {
+        &self.keys
+    }
+
+    #[must_use]
+    pub fn get_property_index(&self, key: &str) -> usize {
+        self.meta.keys[key]
+    }
+
+    #[must_use]
+    pub fn get_property(&self, key: &str) -> &[f64] {
+        let start = self.meta.keys[key] * self.get_atoms_count();
+        let end = start + self.get_atoms_count();
+        &self.atoms[start..end]
+    }
+
+    #[must_use]
+    pub fn get_property_mut(&mut self, key: &str) -> &mut [f64] {
+        let start = self.meta.keys[key] * self.get_atoms_count();
+        let end = start + self.get_atoms_count();
+        &mut self.atoms[start..end]
+    }
+
+    #[must_use]
+    pub fn get_atom_value(&self, property_index: usize, atom_index: usize) -> f64 {
+        let idx = self.get_atoms_count() * property_index + atom_index;
+        self.atoms[idx]
+    }
+
+    pub fn set_atom_value(&mut self, property_index: usize, atom_index: usize, value: f64) {
+        let idx = self.get_atoms_count() * property_index + atom_index;
+        self.atoms[idx] = value;
+    }
+
+    pub fn get_zero_lvl(&self) -> f64 {
+        self.get_property("z")
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    // #[must_use]
+    // pub fn get_coordinates(&self) -> Vec<XYZ> {
+    //     izip!(
+    //         self.get_property("x").iter().copied(),
+    //         self.get_property("y").iter().copied(),
+    //         self.get_property("z").iter().copied(),
+    //     )
+    //     .enumerate()
+    //     .map(|(i, xyz)| XYZ::new(Into::<[f64; 3]>::into(xyz).into(), i, false))
+    //     .collect()
+    // }
+}
+
+impl fmt::Debug for Snapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DumpSnapshot")
+            .field("timestep", &self.get_timestep())
+            .field("atoms_count", &self.get_atoms_count())
+            .field("keys", &self.get_keys())
+            .finish_non_exhaustive()
+    }
+}
+
+#[must_use]
+pub fn copy_snapshot(input_snapshot: &Snapshot) -> Snapshot {
+    copy_snapshot_with_indices_with_keys(
+        input_snapshot,
+        std::iter::empty(),
+        0..input_snapshot.get_atoms_count(),
+    )
+}
+
+#[must_use]
+pub fn copy_snapshot_with_indices(
+    input_snapshot: &Snapshot,
+    indices: impl Iterator<Item = usize>,
+) -> Snapshot {
+    copy_snapshot_with_indices_with_keys(input_snapshot, std::iter::empty(), indices)
+}
+
+#[must_use]
+pub fn copy_snapshot_with_keys<'a>(
+    input_snapshot: &Snapshot,
+    additional_keys: impl Iterator<Item = &'a str>,
+) -> Snapshot {
+    copy_snapshot_with_indices_with_keys(
+        input_snapshot,
+        additional_keys,
+        0..input_snapshot.get_atoms_count(),
+    )
+}
+
+#[must_use]
+pub fn copy_snapshot_with_indices_with_keys<'a, 'b>(
+    input_snapshot: &Snapshot,
+    additional_keys: impl Iterator<Item = &'a str>,
+    indices: impl Iterator<Item = usize>,
+) -> Snapshot {
+    let mut input_meta = input_snapshot.meta.clone();
+    for key in additional_keys {
+        input_meta
+            .keys
+            .insert(key.to_string(), input_meta.keys.len());
+    }
+    let indices = indices.collect::<Vec<_>>();
+    let mut snapshot = Snapshot::new(input_meta);
+    for (new_i, i) in indices.into_iter().enumerate() {
+        for (j, _) in input_snapshot.get_keys().iter().enumerate() {
+            snapshot.set_atom_value(j, new_i, input_snapshot.get_atom_value(j, i));
+        }
+    }
+    snapshot
 }
