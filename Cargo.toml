@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = ["crates/files",
     "crates/lammps",
     "tools/adf",
     "tools/blob",
