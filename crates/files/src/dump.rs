@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{self, BufRead},
     path::Path,
@@ -39,24 +39,27 @@ impl Dump {
     ///
     /// Returns an `Error` if the dump cannot be opened or parsed.
     pub fn open<P: AsRef<Path>>(path: P, timesteps: &[u64]) -> Result<Self> {
+        let timesteps = timesteps.iter().copied().collect::<HashSet<_>>();
         let mut parser = Parser::open(path)?;
-        let mut snapshots = HashMap::<u64, Snapshot>::new();
+        let mut seen = HashSet::new();
+        let mut snapshots = Vec::new();
         while let Some(meta) = next_snapshot_meta(&mut parser) {
             let meta = meta?;
             if !timesteps.contains(&meta.timestep) {
+                parser.skip(meta.atoms_count)?;
                 continue;
             }
-            if snapshots.contains_key(&meta.timestep) {
+            if seen.contains(&meta.timestep) {
                 return Err(Error::new(
                     ErrorKind::DuplicateTimestep(meta.timestep),
                     meta.timestep.to_string(),
-                    parser.current(),
+                    parser.get_current(),
                 ));
             }
             let snapshot = Snapshot::parse(&mut parser, meta)?;
-            snapshots.insert(snapshot.get_timestep(), snapshot);
+            seen.insert(snapshot.get_timestep());
+            snapshots.push(snapshot);
         }
-        let snapshots = snapshots.into_values().collect();
         Ok(Self::new(snapshots))
     }
 
@@ -65,7 +68,7 @@ impl Dump {
     /// # Errors
     ///
     /// Returns an `io::Error` if the dump cannot be saved.
-    pub fn save(&self, path: &Path) -> io::Result<()> {
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         let f = File::create(path)?;
         let mut w = io::BufWriter::new(f);
         for snapshot in self.get_snapshots() {
@@ -90,8 +93,7 @@ impl Dump {
     #[must_use]
     pub fn get_property_checked(&self, timestep: u64, key: &str) -> Option<&[f64]> {
         let idx = self.timesteps.get(&timestep)?;
-        let property = self.snapshots[*idx].get_property(key);
-        Some(property)
+        self.snapshots[*idx].get_property_checked(key)
     }
 }
 

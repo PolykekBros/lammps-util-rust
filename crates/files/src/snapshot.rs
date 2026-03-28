@@ -9,7 +9,7 @@ use std::{
 use geomutil_util::{BoundingBox3, Point3};
 
 use crate::{
-    error::{Error, ErrorKind, Result},
+    error::{ErrorKind, Result},
     parser::Parser,
 };
 
@@ -53,69 +53,41 @@ impl SnapshotMeta {
 }
 
 fn parse_timestep<B: BufRead>(parser: &mut Parser<B>) -> Result<u64> {
-    let line = parser.next().transpose()?.unwrap_or_default();
-    if !line.trim().starts_with(HEADER_TIMESTEP) {
-        return Err(Error::new(
-            ErrorKind::ExpectedSymboxHeader,
-            line,
-            parser.current(),
-        ));
-    }
-    let timestep = parser
-        .next()
-        .ok_or_else(|| Error::new(ErrorKind::MissingTimestep, String::new(), parser.current()))??;
-    timestep
-        .parse()
-        .map_err(|e| Error::new(ErrorKind::InvalidTimestep(e), timestep, parser.current()))
+    parser.parse_line(|line| {
+        line.starts_with(HEADER_TIMESTEP)
+            .then_some(())
+            .ok_or(ErrorKind::ExpectedTimestepHeader)
+    })?;
+    parser.parse_line(|line| line.parse().map_err(ErrorKind::InvalidTimestep))
 }
 
 fn parse_atom_count<B: BufRead>(parser: &mut Parser<B>) -> Result<usize> {
-    let line = parser.next().transpose()?.unwrap_or_default();
-    if !line.trim().starts_with(HEADER_NUM_OF_ATOMS) {
-        return Err(Error::new(
-            ErrorKind::ExpectedSymboxHeader,
-            line,
-            parser.current(),
-        ));
-    }
-    let atom_count = parser.next().ok_or_else(|| {
-        Error::new(ErrorKind::MissingAtomCount, String::new(), parser.current())
-    })??;
-    atom_count
-        .parse()
-        .map_err(|e| Error::new(ErrorKind::InvalidAtomCount(e), atom_count, parser.current()))
+    parser.parse_line(|line| {
+        line.starts_with(HEADER_TIMESTEP)
+            .then_some(())
+            .ok_or(ErrorKind::ExpectedAtomCountHeader)
+    })?;
+    parser.parse_line(|line| line.parse().map_err(ErrorKind::InvalidAtomCount))
 }
 
 fn parse_sym_box<B: BufRead>(parser: &mut Parser<B>) -> Result<SymBox> {
-    let line = parser.next().transpose()?.unwrap_or_default();
-    if !line.trim().starts_with(HEADER_SYM_BOX) {
-        return Err(Error::new(
-            ErrorKind::ExpectedSymboxHeader,
-            line,
-            parser.current(),
-        ));
-    }
-    let boundaries = line[HEADER_SYM_BOX.len()..].trim().to_owned();
+    let boundaries = parser.parse_line(|line| {
+        line.starts_with(HEADER_SYM_BOX)
+            .then(|| line[HEADER_SYM_BOX.len()..].trim().to_owned())
+            .ok_or(ErrorKind::ExpectedSymboxHeader)
+    })?;
     let mut lo = Point3::default();
     let mut hi = Point3::default();
     for i in 0..3 {
-        let line = parser.next().transpose()?.unwrap_or_default();
-        let pair = line
-            .split_whitespace()
-            .map(|s| {
-                s.parse::<f64>().map_err(|e| {
-                    let line = line.clone();
-                    Error::new(ErrorKind::InvalidSymboxField(e), line, parser.current())
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        if pair.len() < 2 {
-            return Err(Error::new(
-                ErrorKind::MissingSymboxField,
-                line,
-                parser.current(),
-            ));
-        }
+        let pair: Vec<f64> = parser.parse_line(|line| {
+            let pair = line
+                .split_whitespace()
+                .map(|s| s.parse().map_err(ErrorKind::InvalidSymboxField))
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            (pair.len() == 2)
+                .then_some(pair)
+                .ok_or(ErrorKind::MissingSymboxField)
+        })?;
         lo[i] = pair[0];
         hi[i] = pair[1];
     }
@@ -126,34 +98,36 @@ fn parse_sym_box<B: BufRead>(parser: &mut Parser<B>) -> Result<SymBox> {
 }
 
 fn parse_keys<B: BufRead>(parser: &mut Parser<B>) -> Result<HashMap<String, usize>> {
-    let line = parser.next().transpose()?.unwrap_or_default();
-    if !line.trim().starts_with(HEADER_ATOMS) {
-        return Err(Error::new(
-            ErrorKind::ExpectedAtomsHeader,
-            line,
-            parser.current(),
-        ));
-    }
-    let tokens = line[HEADER_ATOMS.len()..].trim();
-    let mut keys = HashMap::new();
-    for (idx, key) in tokens.split_whitespace().enumerate() {
-        if keys.contains_key(key) {
-            return Err(Error::new(
-                ErrorKind::DuplicateAtomKeys(key.to_owned()),
-                line.clone(),
-                parser.current(),
-            ));
-        }
-        keys.insert(key.to_owned(), idx);
-    }
-    if keys.is_empty() {
-        return Err(Error::new(
-            ErrorKind::MissingAtomKeys,
-            line.clone(),
-            parser.current(),
-        ));
-    }
-    Ok(keys)
+    parser.parse_line(|line| {
+        line.starts_with(HEADER_SYM_BOX)
+            .then_some(())
+            .ok_or(ErrorKind::ExpectedAtomsHeader)?;
+        let tokens = line[HEADER_ATOMS.len()..].trim();
+        let keys = tokens.split_whitespace().enumerate().try_fold(
+            HashMap::new(),
+            |mut map, (idx, key)| {
+                map.insert(key.to_owned(), idx)
+                    .is_none()
+                    .then_some(map)
+                    .ok_or_else(|| ErrorKind::DuplicateAtomKeys(key.to_owned()))
+            },
+        )?;
+        (!keys.is_empty())
+            .then_some(keys)
+            .ok_or(ErrorKind::MissingAtomKeys)
+    })
+}
+
+fn parse_atom_row<B: BufRead>(parser: &mut Parser<B>, n: usize) -> Result<Vec<f64>> {
+    parser.parse_line(|line| {
+        let values = line
+            .split_whitespace()
+            .map(|s| s.parse::<f64>().map_err(ErrorKind::InvalidAtomRowField))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        (values.len() == n)
+            .then_some(values)
+            .ok_or(ErrorKind::MissingAtomRowField)
+    })
 }
 
 #[derive(Clone)]
@@ -181,27 +155,7 @@ impl Snapshot {
     pub fn parse<B: BufRead>(parser: &mut Parser<B>, meta: SnapshotMeta) -> Result<Self> {
         let mut snapshot = Self::new(meta);
         for i in 0..snapshot.get_atoms_count() {
-            let line = parser.next().transpose()?.unwrap_or_default();
-            let values = line
-                .split_whitespace()
-                .map(|s| {
-                    s.parse::<f64>().map_err(|e| {
-                        let line = line.clone();
-                        Error::new(
-                            ErrorKind::InvalidAtomRowField(e),
-                            line.clone(),
-                            parser.current(),
-                        )
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
-            if values.len() != snapshot.get_keys().len() {
-                return Err(Error::new(
-                    ErrorKind::MissingAtomRowField,
-                    line.clone(),
-                    parser.current(),
-                ));
-            }
+            let values = parse_atom_row(parser, snapshot.get_keys().len())?;
             for (j, val) in values.into_iter().enumerate() {
                 snapshot.set_atom_value(j, i, val);
             }
@@ -224,7 +178,7 @@ impl Snapshot {
         writeln!(w, "{}", self.get_atoms_count())?;
         writeln!(w, "{HEADER_SYM_BOX} {}", self.get_symbox().boundaries)?;
         for (lo, hi) in iter::zip(self.get_symbox().bbox.lower, self.get_symbox().bbox.upper) {
-            writeln!(w, "{lo} {hi}",)?;
+            writeln!(w, "{lo} {hi}")?;
         }
         writeln!(w, "{HEADER_ATOMS} {}", self.get_keys().join(" "))?;
         for i in 0..self.get_atoms_count() {
@@ -267,18 +221,47 @@ impl Snapshot {
         self.meta.keys[key]
     }
 
+    fn get_property_atoms_range(&self, key: &str) -> (usize, usize) {
+        let idx = self.get_property_index(key);
+        let start = idx * self.get_atoms_count();
+        let end = start + self.get_atoms_count();
+        (start, end)
+    }
+
     #[must_use]
     pub fn get_property(&self, key: &str) -> &[f64] {
-        let start = self.meta.keys[key] * self.get_atoms_count();
-        let end = start + self.get_atoms_count();
+        let (start, end) = self.get_property_atoms_range(key);
         &self.atoms[start..end]
     }
 
     #[must_use]
     pub fn get_property_mut(&mut self, key: &str) -> &mut [f64] {
-        let start = self.meta.keys[key] * self.get_atoms_count();
-        let end = start + self.get_atoms_count();
+        let (start, end) = self.get_property_atoms_range(key);
         &mut self.atoms[start..end]
+    }
+
+    #[must_use]
+    pub fn get_property_index_checked(&self, key: &str) -> Option<usize> {
+        self.meta.keys.get(key).copied()
+    }
+
+    fn get_property_atoms_range_checked(&self, key: &str) -> Option<(usize, usize)> {
+        let idx = self.get_property_index_checked(key)?;
+        let start = idx * self.get_atoms_count();
+        let end = start + self.get_atoms_count();
+        Some((start, end))
+    }
+
+    #[must_use]
+    pub fn get_property_checked(&self, key: &str) -> Option<&[f64]> {
+        let (start, end) = self.get_property_atoms_range_checked(key)?;
+        Some(&self.atoms[start..end])
+    }
+
+    #[must_use]
+    pub fn get_property_mut_checked(&mut self, key: &str) -> Option<&mut [f64]> {
+        let (start, end) = self.get_property_atoms_range_checked(key)?;
+        Some(&mut self.atoms[start..end])
     }
 
     #[must_use]
@@ -292,12 +275,12 @@ impl Snapshot {
         self.atoms[idx] = value;
     }
 
-    pub fn get_zero_lvl(&self) -> f64 {
-        self.get_property("z")
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max)
-    }
+    // pub fn get_zero_lvl(&self) -> f64 {
+    //     self.get_property("z")
+    //         .iter()
+    //         .copied()
+    //         .fold(f64::NEG_INFINITY, f64::max)
+    // }
 
     // #[must_use]
     // pub fn get_coordinates(&self) -> Vec<XYZ> {
