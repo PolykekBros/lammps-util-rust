@@ -63,7 +63,7 @@ fn parse_timestep<B: BufRead>(parser: &mut Parser<B>) -> Result<u64> {
 
 fn parse_atom_count<B: BufRead>(parser: &mut Parser<B>) -> Result<usize> {
     parser.parse_line(|line| {
-        line.starts_with(HEADER_TIMESTEP)
+        line.starts_with(HEADER_NUM_OF_ATOMS)
             .then_some(())
             .ok_or(ErrorKind::ExpectedAtomCountHeader)
     })?;
@@ -99,7 +99,7 @@ fn parse_sym_box<B: BufRead>(parser: &mut Parser<B>) -> Result<SymBox> {
 
 fn parse_keys<B: BufRead>(parser: &mut Parser<B>) -> Result<HashMap<String, usize>> {
     parser.parse_line(|line| {
-        line.starts_with(HEADER_SYM_BOX)
+        line.starts_with(HEADER_ATOMS)
             .then_some(())
             .ok_or(ErrorKind::ExpectedAtomsHeader)?;
         let tokens = line[HEADER_ATOMS.len()..].trim();
@@ -335,18 +335,19 @@ pub fn copy_snapshot_with_keys<'a>(
 }
 
 #[must_use]
-pub fn copy_snapshot_with_indices_with_keys<'a, 'b>(
+pub fn copy_snapshot_with_indices_with_keys<'a>(
     input_snapshot: &Snapshot,
     additional_keys: impl Iterator<Item = &'a str>,
     indices: impl Iterator<Item = usize>,
 ) -> Snapshot {
+    let indices = indices.collect::<Vec<_>>();
     let mut input_meta = input_snapshot.meta.clone();
+    input_meta.atoms_count = indices.len();
     for key in additional_keys {
         input_meta
             .keys
             .insert(key.to_string(), input_meta.keys.len());
     }
-    let indices = indices.collect::<Vec<_>>();
     let mut snapshot = Snapshot::new(input_meta);
     for (new_i, i) in indices.into_iter().enumerate() {
         for (j, _) in input_snapshot.get_keys().iter().enumerate() {
@@ -354,4 +355,122 @@ pub fn copy_snapshot_with_indices_with_keys<'a, 'b>(
         }
     }
     snapshot
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // Note: Adjust the ErrorKind imports depending on your exact error module structure
+    use crate::error::ErrorKind;
+
+    // A realistic mock of the snapshot format
+    const VALID_DUMP: &str = "\
+ITEM: TIMESTEP
+1000
+ITEM: NUMBER OF ATOMS
+2
+ITEM: BOX BOUNDS pp pp pp
+0.0 10.0
+0.0 20.0
+-5.0 5.0
+ITEM: ATOMS id type x y z
+1 1 0.5 1.5 2.5
+2 2 8.5 9.5 -2.5
+";
+
+    #[test]
+    fn test_parse_valid_snapshot() {
+        // `as_bytes()` implements `BufRead`, making it perfect for our parser
+        let mut parser = Parser::new(VALID_DUMP.as_bytes());
+
+        // 1. Test Metadata Parsing
+        let meta = SnapshotMeta::parse(&mut parser);
+        assert!(meta.is_ok());
+        let meta = meta.unwrap();
+        assert_eq!(meta.timestep, 1000);
+        assert_eq!(meta.atoms_count, 2);
+        assert_eq!(meta.sym_box.boundaries, "pp pp pp");
+
+        // 2. Test Snapshot Parsing
+        let snapshot = Snapshot::parse(&mut parser, meta);
+        assert!(snapshot.is_ok());
+        let snapshot = snapshot.unwrap();
+        assert_eq!(snapshot.get_atoms_count(), 2);
+        assert_eq!(snapshot.get_keys(), &["id", "type", "x", "y", "z"]);
+
+        // 3. Test flattened array access (Struct-of-Arrays math)
+        let id_idx = snapshot.get_property_index("id");
+        let x_idx = snapshot.get_property_index("x");
+
+        // Atom 0: id = 1.0, x = 0.5
+        assert_eq!(snapshot.get_atom_value(id_idx, 0), 1.0);
+        assert_eq!(snapshot.get_atom_value(x_idx, 0), 0.5);
+
+        // Atom 1: id = 2.0, x = 8.5
+        assert_eq!(snapshot.get_atom_value(id_idx, 1), 2.0);
+        assert_eq!(snapshot.get_atom_value(x_idx, 1), 8.5);
+    }
+
+    #[test]
+    fn test_parse_missing_atom_columns() {
+        const INVALID_DUMP: &str = "\
+ITEM: TIMESTEP
+1000
+ITEM: NUMBER OF ATOMS
+2
+ITEM: BOX BOUNDS pp pp pp
+0.0 10.0
+0.0 20.0
+-5.0 5.0
+ITEM: ATOMS id type x y z
+1 1 0.5 1.5
+2 2 8.5 9.5 -2.5
+";
+        let mut parser = Parser::new(INVALID_DUMP.as_bytes());
+        let meta = SnapshotMeta::parse(&mut parser).unwrap();
+
+        let result = Snapshot::parse(&mut parser, meta);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert!(matches!(err.kind(), ErrorKind::MissingAtomRowField));
+        assert_eq!(err.line(), 10); // Should fail exactly on line 9
+    }
+
+    #[test]
+    fn test_copy_snapshot_subset() {
+        let mut parser = Parser::new(VALID_DUMP.as_bytes());
+        let meta = SnapshotMeta::parse(&mut parser).unwrap();
+        let original_snapshot = Snapshot::parse(&mut parser, meta).unwrap();
+
+        // Copy ONLY the second atom (index 1), and add a new property "vx"
+        let new_keys = vec!["vx"];
+        let indices = vec![1];
+
+        let copied_snapshot = copy_snapshot_with_indices_with_keys(
+            &original_snapshot,
+            new_keys.into_iter(),
+            indices.into_iter(),
+        );
+
+        // Verify the atoms count was correctly updated
+        assert_eq!(copied_snapshot.get_atoms_count(), 1);
+
+        // Verify keys were appended
+        assert_eq!(
+            copied_snapshot.get_keys(),
+            &["id", "type", "x", "y", "z", "vx"]
+        );
+
+        // Verify the data was copied correctly to the new index 0
+        let id_idx = copied_snapshot.get_property_index("id");
+        let x_idx = copied_snapshot.get_property_index("x");
+        let vx_idx = copied_snapshot.get_property_index("vx");
+
+        assert_eq!(copied_snapshot.get_atom_value(id_idx, 0), 2.0); // original id was 2
+        assert_eq!(copied_snapshot.get_atom_value(x_idx, 0), 8.5); // original x was 8.5
+
+        // Verify new keys are initialized to 0.0
+        assert_eq!(copied_snapshot.get_atom_value(vx_idx, 0), 0.0);
+    }
 }

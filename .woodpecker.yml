@@ -1,0 +1,20 @@
+labels:
+  platform: linux/amd64
+
+steps:
+  check-and-fmt:
+    image: rust:alpine
+    commands:
+      - rustup component add clippy rustfmt
+      - cargo fmt --all -- --check
+      - cargo check --all-targets --all-features
+      - cargo clippy --all-targets --all-features
+
+  test:
+    image: rust:alpine
+    commands:
+      - cargo test --all-targets --all-features
+
+when:
+  - event: [push, pull_request, manual]
+    branch: [main]
