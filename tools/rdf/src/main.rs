@@ -99,7 +99,7 @@ fn print_table<T: fmt::Display>(table: &[T], header: &[&str], rows: usize, cols:
         let start = get_idx(row_idx, 0);
         let end = get_idx(row_idx + 1, 0);
         for (w, t) in iter::zip(&mut widths, &table[start..end]) {
-            *w = t.to_string().chars().count().max(*w);
+            *w = format!("{t:.06}").len().max(*w);
         }
     }
     print!("#");
@@ -111,7 +111,7 @@ fn print_table<T: fmt::Display>(table: &[T], header: &[&str], rows: usize, cols:
         print!(" ");
         for (col_idx, width) in iter::zip(0..cols, &widths) {
             print!(
-                "{:>width$}",
+                "{:>width$.06}",
                 table[get_idx(row_idx, col_idx)],
                 width = width + 1
             );
