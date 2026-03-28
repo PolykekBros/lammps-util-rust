@@ -20,6 +20,8 @@ members = ["crates/files",
 resolver = "2"
 
 [workspace.dependencies]
+lammps-files = { path = "crates/files" }
+lammps-util = { path = "crates/lammps" }
 kd-tree = "0.6.0"
 anyhow = "1.0.95"
 itertools = "0.14.0"
@@ -29,4 +31,6 @@ plotters = "0.3.7"
 log = "0.4.25"
 env_logger = "0.11.6"
 rayon = "1.10.0"
-geomutil_util = { git = "https://github.com/denisstrizhkin/geomutil-rust.git", version = "0.1.2", rev="0fa0ba0c8e767801681e3458e8402d12d22b8b4d" }
+geomutil_util = {
+    git = "https://github.com/denisstrizhkin/geomutil-rust.git"
+}

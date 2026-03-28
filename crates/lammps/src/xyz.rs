@@ -1,11 +1,10 @@
 use geomutil_util::Point3;
 use kd_tree::KdPoint;
+use lammps_files::{snapshot::SymBox, Snapshot};
 use std::{
     array,
     ops::{Deref, DerefMut},
 };
-
-use crate::SymBox;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct XYZ {
@@ -85,4 +84,13 @@ impl XYZ {
             }
         }
     }
+}
+
+pub fn xyz_vec_from_snapshot(snapshot: &Snapshot) -> Vec<XYZ> {
+    let x = snapshot.get_property("x");
+    let y = snapshot.get_property("y");
+    let z = snapshot.get_property("z");
+    (0..snapshot.get_atoms_count())
+        .map(|idx| XYZ::new(Point3::from([x[idx], y[idx], z[idx]]), idx, false))
+        .collect()
 }

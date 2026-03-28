@@ -1,11 +1,12 @@
 [package]
-name = "lammps-util-rust"
+name = "lammps-util"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 typenum = "1.17.0"
 geomutil_util = {workspace=true}
+lammps-files = { workspace = true }
 log = {workspace=true}
 kd-tree = { workspace=true }
 anyhow = { workspace=true }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-lammps-util-rust = { path = "../../crates/lammps"}
+lammps-util = { workspace = true }
 log = { workspace=true }
 env_logger = { workspace=true }
 anyhow = { workspace = true }

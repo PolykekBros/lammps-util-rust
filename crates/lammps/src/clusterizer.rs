@@ -1,16 +1,20 @@
+use lammps_files::{
+    snapshot::{copy_snapshot_with_keys, SymBox},
+    Snapshot,
+};
 use log::debug;
 
-use crate::{copy_snapshot_with_keys, DumpSnapshot, SymBox, XYZ};
+use crate::{xyz::xyz_vec_from_snapshot, XYZ};
 use std::{
     collections::{HashMap, HashSet},
     iter,
 };
 
 #[must_use]
-pub fn clusterize_snapshot(snapshot: &DumpSnapshot, cutoff: f64) -> DumpSnapshot {
+pub fn clusterize_snapshot(snapshot: &Snapshot, cutoff: f64) -> Snapshot {
     let mut snapshot = copy_snapshot_with_keys(snapshot, iter::once("cluster"));
-    let coords = snapshot.get_coordinates();
-    let clusters = clusterize_coords(coords, &snapshot.sym_box, cutoff);
+    let coords = xyz_vec_from_snapshot(&snapshot);
+    let clusters = clusterize_coords(coords, snapshot.get_symbox(), cutoff);
     let cluster_property_idx = snapshot.get_property_index("cluster");
     let id_property_idx = snapshot.get_property_index("id");
     for (atom_idx, cluster_idx) in clusters.into_iter().flat_map(|(cluster_idx, atoms_idx)| {
@@ -72,7 +76,7 @@ fn clusterize_coords(
 #[allow(clippy::cast_possible_truncation)]
 #[allow(clippy::cast_sign_loss)]
 #[must_use]
-pub fn get_clusters(snapshot: &DumpSnapshot) -> HashMap<usize, HashSet<usize>> {
+pub fn get_clusters(snapshot: &Snapshot) -> HashMap<usize, HashSet<usize>> {
     let clusters = snapshot.get_property("cluster");
     let ids = snapshot.get_property("id");
     let cluster_idx_map = iter::zip(ids, clusters)

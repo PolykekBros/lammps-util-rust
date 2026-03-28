@@ -2,7 +2,7 @@ use crate::geomutil_util::Float;
 use std::iter;
 
 pub fn range<T: Float>(begin: T, end: T, count: usize) -> impl Iterator<Item = T> {
-    let n = count.checked_sub(1).unwrap_or_default().max(1);
+    let n = count.saturating_sub(1).max(1);
     let step = (end - begin) / T::from(n as f64);
     (0..count).map(move |i| T::from(i as f64).mul_add(step, begin))
 }

@@ -1,10 +1,10 @@
 #![allow(clippy::cast_precision_loss)]
-use anyhow::Result;
 use clap::Parser;
-use itertools::Itertools;
-use lammps_util_rust::{DumpFile, DumpSnapshot, XYZ};
+use lammps_files::{Dump, Snapshot};
+use lammps_util::{XYZ, xyz::xyz_vec_from_snapshot};
 use rayon::prelude::*;
-use std::{iter, path::PathBuf};
+
+use std::{fmt, iter, path::PathBuf};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -31,10 +31,10 @@ fn get_bins(cutoff: f64, n: usize) -> Vec<(f64, f64)> {
 
 fn normalize(
     rdf: impl IntoIterator<Item = ((f64, f64), usize)>,
-    dump: &DumpSnapshot,
+    snapshot: &Snapshot,
 ) -> Vec<(f64, f64)> {
-    let vol = dump.sym_box.bbox.volume();
-    let num = dump.atoms_count as f64;
+    let vol = snapshot.get_symbox().bbox.volume();
+    let num = snapshot.get_atoms_count() as f64;
     let rho = num / vol;
     rdf.into_iter()
         .map(|((lo, hi), n)| {
@@ -46,10 +46,10 @@ fn normalize(
         .collect()
 }
 
-fn get_rdf(cutoff: f64, n: usize, dump: &DumpSnapshot) -> Vec<(f64, f64)> {
+fn get_rdf(cutoff: f64, n: usize, snapshot: &Snapshot) -> Vec<(f64, f64)> {
     let bins = get_bins(cutoff, n);
-    let mut coords = dump.get_coordinates();
-    XYZ::get_supercell_coords(&mut coords, &dump.sym_box, cutoff);
+    let mut coords = xyz_vec_from_snapshot(snapshot);
+    XYZ::get_supercell_coords(&mut coords, snapshot.get_symbox(), cutoff);
     let kdtree = kd_tree::KdTree::build_by_ordered_float(coords);
     let rdf = kdtree
         .items()
@@ -84,26 +84,56 @@ fn get_rdf(cutoff: f64, n: usize, dump: &DumpSnapshot) -> Vec<(f64, f64)> {
                 a
             },
         );
-    normalize(rdf, dump)
+    normalize(rdf, snapshot)
 }
 
-fn main() -> Result<()> {
+fn print_table<T: fmt::Display>(table: &[T], header: &[&str], rows: usize, cols: usize) {
+    if cols == 0 || rows == 0 {
+        return;
+    }
+    assert_eq!(header.len(), cols);
+    assert_eq!(table.len(), cols * rows);
+    let get_idx = |row_idx: usize, col_idx: usize| row_idx * cols + col_idx;
+    let mut widths = header.iter().map(|h| h.chars().count()).collect::<Vec<_>>();
+    for row_idx in 0..rows {
+        let start = get_idx(row_idx, 0);
+        let end = get_idx(row_idx + 1, 0);
+        for (w, t) in iter::zip(&mut widths, &table[start..end]) {
+            *w = t.to_string().chars().count().max(*w);
+        }
+    }
+    print!("#");
+    for (h, width) in iter::zip(header, &widths) {
+        print!("{h:>width$}", width = width + 1);
+    }
+    println!();
+    for row_idx in 0..rows {
+        print!(" ");
+        for (col_idx, width) in iter::zip(0..cols, &widths) {
+            print!(
+                "{:>width$}",
+                table[get_idx(row_idx, col_idx)],
+                width = width + 1
+            );
+        }
+        println!();
+    }
+}
+
+fn main() {
     env_logger::init();
     let cli = Cli::parse();
     let dump_path = cli.dump_file;
     let timesteps = cli.timestep.map(|t| vec![t]).unwrap_or_default();
-    let dump = DumpFile::read(dump_path.as_path(), &timesteps)?;
-    let snapshot = dump.get_snapshots()[0];
+    let dump = Dump::open(dump_path, &timesteps).unwrap();
+    let snapshot = &dump.get_snapshots()[0];
     let rdf = get_rdf(cli.cutoff, cli.n_bins, snapshot);
+    let rows = rdf.len();
+    let cols = 2;
+    let header = ["r", "g(r)"];
     let table = rdf
         .into_iter()
-        .map(|vals| {
-            <[_; 2]>::from(vals)
-                .into_iter()
-                .map(|x| format!("{x:10.4}"))
-                .join("\t")
-        })
-        .join("\n");
-    println!("# radius number\n{table}");
-    Ok(())
+        .flat_map(|(x, y)| [x, y])
+        .collect::<Vec<_>>();
+    print_table(&table, &header, rows, cols);
 }

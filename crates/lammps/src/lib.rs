@@ -2,12 +2,11 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::missing_errors_doc)]
 mod clusterizer;
-mod dump_file;
-mod dump_snapshot;
 mod math;
-mod xyz;
+pub mod xyz;
 
 use anyhow::Result;
+use lammps_files::{snapshot::copy_snapshot_with_indices, Snapshot};
 use log::debug;
 use rayon::prelude::*;
 use std::{
@@ -17,14 +16,11 @@ use std::{
 };
 
 pub use clusterizer::{clusterize_snapshot, get_clusters};
-pub use dump_file::DumpFile;
-pub use dump_snapshot::{
-    copy_snapshot, copy_snapshot_with_indices, copy_snapshot_with_indices_with_keys,
-    copy_snapshot_with_keys, DumpSnapshot, SymBox,
-};
 pub use geomutil_util;
 pub use math::{range, IteratorAvg};
 pub use xyz::XYZ;
+
+use crate::xyz::xyz_vec_from_snapshot;
 
 pub struct RunDir {
     pub path: PathBuf,
@@ -66,18 +62,18 @@ where
             processor(&run_dir).map(|r| (run_dir, r))
         })
         .collect::<Result<Vec<_>>>()?;
-    results.sort_by(|a, b| a.0.num.cmp(&b.0.num));
+    results.sort_by_key(|a| a.0.num);
     Ok(results)
 }
 
 fn crater_candidates_snapshot(
-    initial_snapshot: &DumpSnapshot,
-    final_snapshot: &DumpSnapshot,
+    initial_snapshot: &Snapshot,
+    final_snapshot: &Snapshot,
     candidate_cutoff: f64,
     cluster_cutoff: f64,
-) -> DumpSnapshot {
-    let initial_coords = initial_snapshot.get_coordinates();
-    let final_coords = final_snapshot.get_coordinates();
+) -> Snapshot {
+    let initial_coords = xyz_vec_from_snapshot(initial_snapshot);
+    let final_coords = xyz_vec_from_snapshot(final_snapshot);
     let kdtree = kd_tree::KdTree::build_by_ordered_float(final_coords);
     let mut indices = Vec::new();
     for atom in initial_coords {
@@ -88,18 +84,18 @@ fn crater_candidates_snapshot(
     let candidates_snapshot = copy_snapshot_with_indices(initial_snapshot, indices.into_iter());
     debug!(
         "crater candidates atom count: {}",
-        candidates_snapshot.atoms_count
+        candidates_snapshot.get_atoms_count()
     );
     clusterize_snapshot(&candidates_snapshot, cluster_cutoff)
 }
 
 #[must_use]
 pub fn crater_snapshot(
-    initial_snapshot: &DumpSnapshot,
-    final_snapshot: &DumpSnapshot,
+    initial_snapshot: &Snapshot,
+    final_snapshot: &Snapshot,
     candidate_cutoff: f64,
     cluster_cutoff: f64,
-) -> DumpSnapshot {
+) -> Snapshot {
     let candidates_snapshot = crater_candidates_snapshot(
         initial_snapshot,
         final_snapshot,
