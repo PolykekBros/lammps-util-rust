@@ -136,7 +136,7 @@ where
         .filter(|atom| !atom.is_ghost)
         .filter(atom_1_filter)
         .map(|atom| calculate_rdf_hist(kdtree, bins, cutoff, atom, &atom_2_filter))
-        .fold(Vec::new(), |mut g, part_g| {
+        .fold(vec![0.0; bins.len()], |mut g, part_g| {
             iter::zip(&mut g, part_g).for_each(|(g, p_g)| *g += p_g);
             g
         });
