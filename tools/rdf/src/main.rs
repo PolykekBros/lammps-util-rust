@@ -72,7 +72,12 @@ fn normalize_g<'a>(
     });
 }
 
-fn get_rdf_new(snapshot: &Snapshot, n: usize, cutoff: f64, types: &[usize]) -> Vec<f64> {
+fn get_rdf_new(
+    snapshot: &Snapshot,
+    n: usize,
+    cutoff: f64,
+    type_pairs: &[(usize, usize)],
+) -> Vec<f64> {
     let bins_vec = get_bins(cutoff, n);
     assert_eq!(bins_vec.len(), n * 2);
     let (bins, rem) = bins_vec.as_chunks::<2>();
@@ -81,7 +86,7 @@ fn get_rdf_new(snapshot: &Snapshot, n: usize, cutoff: f64, types: &[usize]) -> V
     let mut coords = xyz_vec_from_snapshot(snapshot);
     XYZ::get_supercell_coords(&mut coords, snapshot.get_symbox(), cutoff);
     let kdtree = kd_tree::KdTree::build_by_ordered_float(coords);
-    if types.is_empty() {
+    if type_pairs.is_empty() {
         let mut table = make_table(bins, bins.len(), 2);
         let g = calculate_rdf(snapshot, &kdtree, bins, cutoff, |_| true, |_| true);
         assert_eq!(g.len(), bins.len());
@@ -90,17 +95,10 @@ fn get_rdf_new(snapshot: &Snapshot, n: usize, cutoff: f64, types: &[usize]) -> V
         }
         table
     } else {
-        let cols = (0..types.len())
-            .map(|i| (i..types.len()).count())
-            .sum::<usize>();
+        let cols = type_pairs.len() + 1;
         let mut table = make_table(bins, bins.len(), cols);
         let atypes = snapshot.get_property("type");
-        for (col, (ti, tj)) in types
-            .iter()
-            .enumerate()
-            .flat_map(|(i, ti)| types[i..].iter().map(move |tj| (ti, tj)))
-            .enumerate()
-        {
+        for (col, (ti, tj)) in type_pairs.iter().enumerate() {
             let g = calculate_rdf(
                 snapshot,
                 &kdtree,
@@ -211,35 +209,31 @@ where
     }
 }
 
-fn make_rdf_table_header(types: &[usize]) -> Vec<String> {
-    if types.is_empty() {
-        vec!["r".to_string(), "g(r)".to_string()]
+fn make_rdf_table_header(type_pairs: &[(usize, usize)]) -> Vec<String> {
+    let mut v = Vec::new();
+    if type_pairs.is_empty() {
+        v.push("g(r)".to_string())
     } else {
-        let mut v = Vec::new();
-        v.push("r".to_string());
-        for s in types
-            .iter()
-            .enumerate()
-            .flat_map(|(i, ti)| types[i..].iter().map(move |tj| (ti, tj)))
-            .map(|(ti, tj)| format!("g({ti}-{tj})(r)"))
-        {
-            v.push(s);
-        }
-
-        v
+        v.extend(type_pairs.iter().map(|(ti, tj)| format!("g({ti}-{tj})(r)")))
     }
+    v
+}
+
+fn get_type_pairs(types: &[usize]) -> Vec<(usize, usize)> {
+    let n = types.len();
+    (0..n).flat_map(|i| (i..n).map(move |j| (i, j))).collect()
 }
 
 fn main() {
     env_logger::init();
     let cli = Cli::parse();
+    let type_pairs = get_type_pairs(&cli.types);
     let dump_path = cli.dump_file;
     let timesteps = cli.timestep.map(|t| vec![t]).unwrap_or_default();
     let dump = Dump::open(dump_path, &timesteps).unwrap();
     let snapshot = &dump.get_snapshots()[0];
-    let types = cli.types.as_slice();
-    let table = get_rdf_new(snapshot, cli.n_bins, cli.cutoff, types);
-    let header = make_rdf_table_header(types);
+    let table = get_rdf_new(snapshot, cli.n_bins, cli.cutoff, &type_pairs);
+    let header = make_rdf_table_header(&type_pairs);
     print_table(
         &table,
         header.as_slice(),
