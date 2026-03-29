@@ -58,7 +58,7 @@ fn make_table<'a>(
 }
 
 fn normalize_g<'a>(
-    g: &mut Vec<f64>,
+    g: &mut [f64],
     bins: impl IntoIterator<Item = &'a [f64; 2]>,
     snapshot: &Snapshot,
 ) {
@@ -114,7 +114,7 @@ fn get_rdf_new(snapshot: &Snapshot, n: usize, cutoff: f64, types: &[usize]) -> V
                 table[row * cols + col + 1] = g;
             }
         }
-        todo!()
+        table
     }
 }
 
