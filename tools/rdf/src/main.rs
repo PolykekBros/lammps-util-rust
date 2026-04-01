@@ -12,7 +12,7 @@
 #![allow(clippy::cast_possible_truncation)]
 use clap::Parser;
 use kd_tree::KdTree3;
-use lammps_files::{Dump, Snapshot};
+use lammps_files::{Dump, Snapshot, snapshot::SymBox};
 use lammps_util::{XYZ, xyz::xyz_vec_from_snapshot};
 // use rayon::prelude::*;
 
@@ -56,15 +56,16 @@ fn make_table(bins: &[[f64; 2]], cols: usize) -> Vec<f64> {
 fn normalize_g<'a>(
     g: &mut [f64],
     bins: impl IntoIterator<Item = &'a [f64; 2]>,
-    snapshot: &Snapshot,
+    symbox: &SymBox,
+    ni: f64,
+    nj: f64,
 ) {
-    let vol = snapshot.get_symbox().bbox.volume();
-    let num = snapshot.get_atoms_count() as f64;
-    let rho = num / vol;
+    let vol = symbox.bbox.volume();
+    let rho = nj / vol;
     iter::zip(g, bins).for_each(|(n, [lo, hi])| {
         let vshell = 4.0 / 3.0 * std::f64::consts::PI * (hi.powi(3) - lo.powi(3));
         let nnorm = rho * vshell;
-        *n /= nnorm * num;
+        *n /= nnorm * ni;
     });
 }
 
@@ -129,15 +130,25 @@ where
         .items()
         .iter()
         .filter(|atom| !atom.is_ghost)
-        .filter(atom_1_filter)
+        .filter(&atom_1_filter)
         .map(|atom| calculate_rdf_hist(kdtree, bins, cutoff, atom, &atom_2_filter))
         .fold(vec![0.0; bins.len()], |mut g, part_g| {
             iter::zip(&mut g, part_g).for_each(|(g, p_g)| *g += p_g);
             g
         });
-    let ssum = g.iter().copied().sum::<f64>() as usize;
-    println!("sum {ssum}");
-    normalize_g(&mut g, bins, snapshot);
+    let ni = kdtree
+        .items()
+        .iter()
+        .filter(|atom| !atom.is_ghost)
+        .filter(atom_1_filter)
+        .count() as f64;
+    let nj = kdtree
+        .items()
+        .iter()
+        .filter(|atom| !atom.is_ghost)
+        .filter(atom_2_filter)
+        .count() as f64;
+    normalize_g(&mut g, bins, snapshot.get_symbox(), ni, nj);
     g
 }
 
