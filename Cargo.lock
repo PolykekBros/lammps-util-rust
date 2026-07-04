@@ -11,6 +11,7 @@ dependencies = [
  "env_logger",
  "itertools",
  "kd-tree",
+ "lammps-files",
  "lammps-util",
  "log",
  "rayon",

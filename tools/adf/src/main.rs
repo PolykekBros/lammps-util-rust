@@ -1,7 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
 use itertools::Itertools;
-use lammps_util_rust::{DumpFile, DumpSnapshot, XYZ};
+use lammps_files::{Dump, Snapshot};
+use lammps_util::{XYZ, xyz::xyz_vec_from_snapshot};
 use std::{f64, iter, path::PathBuf};
 
 #[derive(Parser)]
@@ -71,10 +72,10 @@ fn get_adf(
     cutoff_i: f64,
     cutoff_j: f64,
     n: usize,
-    dump: &DumpSnapshot,
+    dump: &Snapshot,
 ) -> Vec<(f64, f64, usize)> {
     let bins = get_bins(n);
-    let coords = dump.get_coordinates();
+    let coords = xyz_vec_from_snapshot(dump);
     let d_types = dump.get_property("type");
     let kdtree = kd_tree::KdTree::build_by_ordered_float(coords);
     let adf = kdtree
@@ -128,7 +129,7 @@ fn get_adf(
                 a
             },
         );
-    normalize(adf, dump.atoms_count)
+    normalize(adf, dump.get_atoms_count())
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -139,8 +140,9 @@ fn main() -> Result<()> {
     let timesteps = cli
         .timestep
         .map_or_else(Vec::new, |timestep| vec![timestep]);
-    let dump = DumpFile::read(dump_path.as_path(), &timesteps)?;
-    let snapshot = dump.get_snapshots()[0];
+    let dump = Dump::open(dump_path.as_path(), &timesteps)?;
+    println!("{}", dump.get_snapshots().len());
+    let snapshot = &dump.get_snapshots()[0];
     let adf = get_adf(
         cli.type_i,
         cli.type_j,
