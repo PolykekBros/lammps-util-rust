@@ -39,13 +39,16 @@ impl Dump {
     ///
     /// Returns an `Error` if the dump cannot be opened or parsed.
     pub fn open<P: AsRef<Path>>(path: P, timesteps: &[u64]) -> Result<Self> {
+        let filter_timesteps = !timesteps.is_empty();
         let timesteps = timesteps.iter().copied().collect::<HashSet<_>>();
         let mut parser = Parser::open(path)?;
         let mut seen = HashSet::new();
         let mut snapshots = Vec::new();
+        let mut total_timesteps = 0;
         while let Some(meta) = next_snapshot_meta(&mut parser) {
             let meta = meta?;
-            if !timesteps.contains(&meta.timestep) {
+            total_timesteps += 1;
+            if filter_timesteps && !timesteps.contains(&meta.timestep) {
                 parser.skip(meta.atoms_count)?;
                 continue;
             }
@@ -59,6 +62,13 @@ impl Dump {
             let snapshot = Snapshot::parse(&mut parser, meta)?;
             seen.insert(snapshot.get_timestep());
             snapshots.push(snapshot);
+        }
+        if total_timesteps == 0 {
+            return Err(Error::new(
+                ErrorKind::EmptyFile,
+                String::new(),
+                parser.get_current(),
+            ));
         }
         Ok(Self::new(snapshots))
     }
@@ -107,5 +117,93 @@ fn next_snapshot_meta<B: BufRead>(parser: &mut Parser<B>) -> Option<Result<Snaps
                 Some(Err(err))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TWO_TIMESTEP_DUMP: &str = "\
+ITEM: TIMESTEP
+1000
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0.0 10.0
+0.0 10.0
+0.0 10.0
+ITEM: ATOMS id type x y z
+1 1 0.5 0.5 0.5
+ITEM: TIMESTEP
+2000
+ITEM: NUMBER OF ATOMS
+1
+ITEM: BOX BOUNDS pp pp pp
+0.0 10.0
+0.0 10.0
+0.0 10.0
+ITEM: ATOMS id type x y z
+1 1 0.5 0.5 0.5
+";
+
+    #[test]
+    fn test_open_empty_file() {
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("empty.dump");
+        std::fs::write(&path, "").unwrap();
+
+        let result = Dump::open(&path, &[0]);
+        let _ = std::fs::remove_file(&path);
+
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(matches!(err.kind(), ErrorKind::EmptyFile));
+        assert_eq!(err.line(), 0);
+    }
+
+    #[test]
+    fn test_open_non_empty_no_timesteps() {
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("random.dump");
+        std::fs::write(&path, "random garbage text\n").unwrap();
+
+        let result = Dump::open(&path, &[0]);
+        let _ = std::fs::remove_file(&path);
+
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(matches!(err.kind(), ErrorKind::EmptyFile));
+        assert_eq!(err.line(), 1);
+    }
+
+    #[test]
+    fn test_open_read_all_timesteps() {
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("two_timesteps.dump");
+        std::fs::write(&path, TWO_TIMESTEP_DUMP).unwrap();
+
+        let result = Dump::open(&path, &[]);
+        let _ = std::fs::remove_file(&path);
+
+        assert!(result.is_ok());
+        let dump = result.unwrap();
+        assert_eq!(dump.get_snapshots().len(), 2);
+        assert_eq!(dump.get_snapshots()[0].get_timestep(), 1000);
+        assert_eq!(dump.get_snapshots()[1].get_timestep(), 2000);
+    }
+
+    #[test]
+    fn test_open_nonexistent_timesteps() {
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("two_timesteps_filtered.dump");
+        std::fs::write(&path, TWO_TIMESTEP_DUMP).unwrap();
+
+        let result = Dump::open(&path, &[999]);
+        let _ = std::fs::remove_file(&path);
+
+        assert!(result.is_ok());
+        let dump = result.unwrap();
+        assert_eq!(dump.get_snapshots().len(), 0);
     }
 }
