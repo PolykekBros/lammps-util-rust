@@ -13,6 +13,18 @@ pub struct XYZ {
     pub is_ghost: bool,
 }
 
+impl Eq for XYZ {}
+
+impl std::hash::Hash for XYZ {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.index.hash(state);
+        self.is_ghost.hash(state);
+        self.coords[0].to_bits().hash(state);
+        self.coords[1].to_bits().hash(state);
+        self.coords[2].to_bits().hash(state);
+    }
+}
+
 impl Deref for XYZ {
     type Target = Point3<f64>;
     fn deref(&self) -> &Self::Target {

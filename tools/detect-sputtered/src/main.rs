@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
-use lammps_util_rust::{
+use lammps_util::{
     DumpFile, clusterize_snapshot, copy_snapshot_with_indices, get_clusters, process_results_dir,
 };
 use std::path::{Path, PathBuf};
@@ -33,7 +33,7 @@ struct MultiCMD {
 
 fn do_run_dir(run_dir: &Path) -> Result<usize> {
     let dump_final = DumpFile::read(&run_dir.join("dump.final"), &[])?;
-    let snapshot_final = clusterize_snapshot(dump_final.get_snapshots()[0], 3.0);
+    let snapshot_final = clusterize_snapshot(&dump_final.get_snapshots()[0], 3.0);
     let clusters = get_clusters(&snapshot_final);
     let sputter_indices = clusters
         .values()
@@ -44,7 +44,7 @@ fn do_run_dir(run_dir: &Path) -> Result<usize> {
         .filter(|atoms| atoms.len() >= 1000)
         .flat_map(|atoms| atoms.iter().copied());
     let snapshot_sputter = copy_snapshot_with_indices(&snapshot_final, sputter_indices);
-    let sputter_count = snapshot_sputter.atoms_count;
+    let sputter_count = snapshot_sputter.get_atoms_count();
     DumpFile::new(vec![snapshot_sputter]).save(&run_dir.join("dump.sputter"))?;
     let snapshot_no_sputter =
         copy_snapshot_with_indices(&snapshot_final, no_sputter_indices.into_iter());

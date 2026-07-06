@@ -3,8 +3,8 @@ use clap::{Args, Parser, Subcommand};
 use core::f32;
 use geomutil_util::Point2;
 use itertools::{izip, Itertools};
-use lammps_util_rust::{
-    clusterize_snapshot, copy_snapshot_with_indices, get_cluster_counts, process_results_dir,
+use lammps_util::{
+    clusterize_snapshot, copy_snapshot_with_indices, process_results_dir,
     DumpFile, DumpSnapshot, IteratorAvg,
 };
 use log::info;
@@ -60,12 +60,12 @@ struct MultiCMD {
 
 #[derive(Debug, Clone, Copy)]
 struct Atom {
-    coords: Point2,
+    coords: Point2<f32>,
     atype: usize,
 }
 
 impl Atom {
-    fn new(coords: Point2, atype: usize) -> Self {
+    fn new(coords: Point2<f32>, atype: usize) -> Self {
         Self { coords, atype }
     }
 }
@@ -73,11 +73,11 @@ impl Atom {
 #[derive(Debug, Clone)]
 struct RimValues {
     atoms: Vec<Atom>,
-    _center: Point2,
+    _center: Point2<f32>,
 }
 
 impl RimValues {
-    fn new(atoms: Vec<Atom>, center: Point2) -> Self {
+    fn new(atoms: Vec<Atom>, center: Point2<f32>) -> Self {
         let mut atoms = atoms;
         atoms.iter_mut().for_each(|a| a.coords -= center);
         Self {
@@ -131,6 +131,13 @@ fn get_above_zero(snap: &DumpSnapshot, zero_lvl: f64) -> DumpSnapshot {
     copy_snapshot_with_indices(snap, indices)
 }
 
+fn get_cluster_counts(snapshot: &DumpSnapshot) -> std::collections::HashMap<usize, usize> {
+    lammps_util::get_clusters(snapshot)
+        .into_iter()
+        .map(|(id, atoms)| (id, atoms.len()))
+        .collect()
+}
+
 fn get_rim_snapshot(
     initial_snapshot: &DumpSnapshot,
     final_snapshot: &DumpSnapshot,
@@ -164,7 +171,7 @@ fn get_rim_atoms(snap: &DumpSnapshot) -> Vec<Atom> {
     .collect()
 }
 
-fn get_center_pos(path: &Path) -> Result<Point2> {
+fn get_center_pos(path: &Path) -> Result<Point2<f32>> {
     let reader = File::open(path)
         .map(BufReader::new)
         .with_context(|| format!("Failed to read cluster trajectory from {}", path.display()))?;
@@ -180,9 +187,9 @@ fn get_center_pos(path: &Path) -> Result<Point2> {
 
 fn get_rim_values(dir: &Path, cutoff: f64) -> Result<RimValues> {
     let dump_input = DumpFile::read(&dir.join("dump.initial"), &[])?;
-    let snap_input = dump_input.get_snapshots()[0];
+    let snap_input = &dump_input.get_snapshots()[0];
     let dump_final = DumpFile::read(&dir.join("dump.final_no_cluster"), &[])?;
-    let snap_final = dump_final.get_snapshots()[0];
+    let snap_final = &dump_final.get_snapshots()[0];
     let snap_rim = get_rim_snapshot(snap_input, snap_final, cutoff);
     let atoms = get_rim_atoms(&snap_rim);
     let dump_rim = DumpFile::new(vec![snap_rim]);
@@ -203,12 +210,12 @@ fn run_single(dir: &Path, cutoff: f64) -> Result<Sectors> {
     parse_run_dir(dir, cutoff)
 }
 
-fn run_multi(dir: &Path, threads: usize, cutoff: f64) -> Result<Sectors> {
+fn run_multi(dir: &Path, _threads: usize, cutoff: f64) -> Result<Sectors> {
     Ok(
-        process_results_dir(dir, threads, |dir| parse_run_dir(&dir.path, cutoff))?
+        process_results_dir(dir, |dir| parse_run_dir(&dir.path, cutoff))?
             .into_iter()
             .map(|(_, sectors)| sectors)
-            .reduce(|mut acc, sectors| {
+            .reduce(|mut acc: Sectors, sectors| {
                 zip(acc.iter_mut(), sectors).for_each(|(a, b)| {
                     a.mass.extend(b.mass);
                     a.radius.extend(b.radius);

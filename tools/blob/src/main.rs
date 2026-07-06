@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use clap::Parser;
-use lammps_util_rust::{DumpFile, IteratorAvg};
+use lammps_util::{DumpFile, IteratorAvg};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -15,7 +15,7 @@ struct Cli {
 
 fn parse_dump(p: &Path) -> Result<()> {
     let dump = DumpFile::read(p, &[3000])?;
-    let snapshot = dump.get_snapshots()[0];
+    let snapshot = &dump.get_snapshots()[0];
     let ax = snapshot.get_property("x");
     let ay = snapshot.get_property("y");
     let ek = snapshot.get_property("c_atom_ke");

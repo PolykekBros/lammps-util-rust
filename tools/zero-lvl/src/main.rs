@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use lammps_util_rust::DumpFile;
+use lammps_util::DumpFile;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

@@ -1,6 +1,6 @@
 use anyhow::{Context, Error, Result, bail};
 use clap::Parser;
-use lammps_util_rust::{DumpFile, RunDir, get_avg_with_std, get_runs_dirs};
+use lammps_util::{DumpFile, RunDir, get_runs_dirs};
 use rayon::{ThreadPoolBuilder, prelude::*};
 use std::{
     collections::HashMap,
@@ -163,7 +163,7 @@ fn process_run_dir(run_dir: RunDir, is_read_time: bool) -> Result<Run> {
     let timesteps = dump
         .get_snapshots()
         .iter()
-        .filter(|s| s.step <= MAX_STEP as u64)
+        .filter(|s| s.get_timestep() <= MAX_STEP as u64)
         .map(|s| {
             let x = s.get_property("x");
             let y = s.get_property("y");
@@ -173,14 +173,14 @@ fn process_run_dir(run_dir: RunDir, is_read_time: bool) -> Result<Run> {
             let vz = s.get_property("vz");
             let ek = s.get_property("c_atom_ke");
             let id = s.get_property("id");
-            let particles = (0..s.atoms_count)
+            let particles = (0..s.get_atoms_count())
                 .map(|i| {
                     let pos = [x[i], y[i], z[i]];
                     let vel = [vx[i], vy[i], vz[i]];
                     Particle::new(pos, vel, ek[i], id[i] as usize)
                 })
                 .collect();
-            let step = s.step as usize;
+            let step = s.get_timestep() as usize;
             let time = match &times {
                 Some(times_map) => Some(times_map.get(&step).copied().with_context(|| {
                     format!(
@@ -208,6 +208,11 @@ fn data_transpose(data: &[Vec<f64>]) -> Result<Vec<Vec<f64>>> {
     Ok((0..m)
         .map(|i| data.iter().map(|inner| inner[i]).collect())
         .collect())
+}
+
+fn get_avg_with_std(inner: &[f64]) -> Option<(f64, f64)> {
+    use lammps_util::IteratorAvg;
+    inner.iter().copied().avg_with_std()
 }
 
 fn parse_data(data: &[Vec<f64>]) -> Result<Vec<(f64, f64)>> {
@@ -243,7 +248,7 @@ fn get_times_data(runs: &[Run]) -> Option<Result<Vec<(f64, f64)>>> {
 
 fn get_data(results_dir: &Path, threads: usize, is_read_time: bool) -> Result<Vec<Run>> {
     let tp = ThreadPoolBuilder::new().num_threads(threads).build()?;
-    let dirs = get_runs_dirs(results_dir)?;
+    let dirs = get_runs_dirs(results_dir)?.collect::<Result<Vec<_>, _>>()?;
     tp.install(|| {
         dirs.into_par_iter()
             .map(|d| process_run_dir(d, is_read_time))

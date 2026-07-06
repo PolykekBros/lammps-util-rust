@@ -2,7 +2,7 @@
 #![allow(clippy::cast_sign_loss)]
 use anyhow::Result;
 use clap::Parser;
-use lammps_util_rust::{DumpFile, DumpSnapshot, RunDir, get_clusters, process_results_dir};
+use lammps_util::{DumpFile, DumpSnapshot, RunDir, get_clusters, process_results_dir};
 use std::{collections::HashMap, iter, path::PathBuf};
 
 #[derive(Parser)]
@@ -108,7 +108,7 @@ fn analyze_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> 
 
 fn do_single_dir(dir: &RunDir, types_map: &HashMap<usize, String>) -> Result<Vec<Cluster>> {
     let dump = DumpFile::read(&dir.path.join("dump.sputter"), &[])?;
-    let clusters = analyze_clusters(dump.get_snapshots()[0], types_map);
+    let clusters = analyze_clusters(&dump.get_snapshots()[0], types_map);
     Ok(clusters)
 }
 

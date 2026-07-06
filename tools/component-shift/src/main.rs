@@ -2,7 +2,7 @@ use std::{iter, path::PathBuf};
 
 use anyhow::Result;
 use clap::Parser;
-use lammps_util_rust::{crater_snapshot, geomutil_util::Point3, DumpFile, DumpSnapshot, XYZ};
+use lammps_util::{crater_snapshot, geomutil_util::Point3, DumpFile, DumpSnapshot, XYZ};
 use log::debug;
 
 #[derive(Parser)]
@@ -15,10 +15,10 @@ struct Cli {
     dump_final: PathBuf,
 }
 
-fn get_coords_shift(a: &[XYZ], b: &[XYZ]) -> (usize, Point3, Point3) {
+fn get_coords_shift(a: &[XYZ], b: &[XYZ]) -> (usize, Point3<f64>, Point3<f64>) {
     let deltas = iter::zip(a, b)
         .map(|(a, b)| **b - **a)
-        .collect::<Vec<Point3>>();
+        .collect::<Vec<Point3<f64>>>();
     let count = deltas.len();
     let sum = deltas.iter().copied().reduce(|a, b| a + b).unwrap();
     let sum2 = deltas
@@ -43,7 +43,7 @@ fn get_ids(input_snapshot: &DumpSnapshot, final_snapshot: &DumpSnapshot) -> Vec<
 }
 
 fn get_coords_filtered(snapshot: &DumpSnapshot, ids: &[f64]) -> Vec<XYZ> {
-    iter::zip(snapshot.get_coordinates(), snapshot.get_property("id"))
+    iter::zip(lammps_util::xyz::xyz_vec_from_snapshot(snapshot), snapshot.get_property("id"))
         .filter(|(_, id)| ids.contains(id))
         .map(|(xyz, _)| xyz)
         .collect()
@@ -65,10 +65,10 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let dump_initial = DumpFile::read(&cli.dump_initial, &[])?;
-    let initial_snapshot = dump_initial.get_snapshots()[0];
+    let initial_snapshot = &dump_initial.get_snapshots()[0];
 
     let dump_final = DumpFile::read(&cli.dump_final, &[])?;
-    let final_snapshot = dump_final.get_snapshots()[0];
+    let final_snapshot = &dump_final.get_snapshots()[0];
 
     let (input_coords, final_coords) = get_coords(initial_snapshot, final_snapshot);
     let (cnt, sum, sum2) = get_coords_shift(&input_coords, &final_coords);
@@ -77,3 +77,4 @@ fn main() -> Result<()> {
     println!("{} {} {}", sum2.x, sum2.y, sum2.z);
     Ok(())
 }
+

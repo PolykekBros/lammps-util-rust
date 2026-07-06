@@ -6,7 +6,7 @@ mod math;
 pub mod xyz;
 
 use anyhow::Result;
-use lammps_files::{snapshot::copy_snapshot_with_indices, Snapshot};
+use lammps_files::Snapshot;
 use log::debug;
 use rayon::prelude::*;
 use std::{
@@ -19,6 +19,36 @@ pub use clusterizer::{clusterize_snapshot, get_clusters};
 pub use geomutil_util;
 pub use math::{range, IteratorAvg};
 pub use xyz::XYZ;
+
+pub use lammps_files::Snapshot as DumpSnapshot;
+pub use lammps_files::snapshot::copy_snapshot_with_indices;
+
+#[derive(Clone)]
+pub struct DumpFile(pub lammps_files::Dump);
+
+impl DumpFile {
+    pub fn new(snapshots: Vec<lammps_files::Snapshot>) -> Self {
+        Self(lammps_files::Dump::new(snapshots))
+    }
+
+    pub fn read<P: AsRef<Path>>(path: P, timesteps: &[u64]) -> Result<Self> {
+        let dump = lammps_files::Dump::open(path, timesteps)?;
+        Ok(Self(dump))
+    }
+}
+
+impl std::ops::Deref for DumpFile {
+    type Target = lammps_files::Dump;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for DumpFile {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 use crate::xyz::xyz_vec_from_snapshot;
 

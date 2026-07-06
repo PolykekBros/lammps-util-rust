@@ -1,8 +1,9 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use lammps_util_rust::{
-    DumpFile, DumpSnapshot, clusterize_snapshot, copy_snapshot_with_indices, get_cluster_counts,
+use lammps_util::{
+    DumpFile, DumpSnapshot, clusterize_snapshot, copy_snapshot_with_indices, get_clusters,
 };
+use lammps_files::Dump;
 use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
@@ -43,6 +44,13 @@ struct InputArgs {
 struct DumpArgs {
     /// Path to the LAMMPS dump file to be processed.
     dump_final: PathBuf,
+}
+
+fn get_cluster_counts(snapshot: &DumpSnapshot) -> std::collections::HashMap<usize, usize> {
+    get_clusters(snapshot)
+        .into_iter()
+        .map(|(id, atoms)| (id, atoms.len()))
+        .collect()
 }
 
 fn get_indices_to_delete(snapshot: &DumpSnapshot) -> Vec<usize> {
@@ -98,8 +106,8 @@ fn delete_atoms(in_file: &Path, out_file: &Path, ids: &[usize]) -> Result<()> {
 }
 
 fn process_input(args: &InputArgs) -> Result<()> {
-    let dump_final = DumpFile::read(&args.dump_final, &[])?;
-    let ids_to_delete = get_ids_to_delete(dump_final.get_snapshots()[0]);
+    let dump_final = Dump::open(&args.dump_final, &[])?;
+    let ids_to_delete = get_ids_to_delete(&dump_final.get_snapshots()[0]);
     println!("about to delete {} atoms", ids_to_delete.len());
     delete_atoms(&args.input_file, &args.output_file, &ids_to_delete)?;
     println!("deleted {} atoms", ids_to_delete.len());
@@ -107,11 +115,11 @@ fn process_input(args: &InputArgs) -> Result<()> {
 }
 
 fn process_dump(args: &DumpArgs) -> Result<()> {
-    let dump_final = DumpFile::read(&args.dump_final, &[])?;
-    let snapshot = dump_final.get_snapshots()[0];
+    let dump_final = Dump::open(&args.dump_final, &[])?;
+    let snapshot = &dump_final.get_snapshots()[0];
     let indices_to_delete = get_indices_to_delete(snapshot);
     println!("about to delete {} atoms", indices_to_delete.len());
-    let indices_to_keep = (0..snapshot.atoms_count).filter(|i| !indices_to_delete.contains(i));
+    let indices_to_keep = (0..snapshot.get_atoms_count()).filter(|i| !indices_to_delete.contains(i));
     let snapshot = copy_snapshot_with_indices(snapshot, indices_to_keep);
     let dump_no_sputter = DumpFile::new(vec![snapshot]);
     let path = args.dump_final.with_file_name(format!(
@@ -128,11 +136,9 @@ fn process_dump(args: &DumpArgs) -> Result<()> {
 fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
-
     match &cli.command {
         Commands::Input(args) => process_input(args)?,
         Commands::Dump(args) => process_dump(args)?,
     }
-
     Ok(())
 }

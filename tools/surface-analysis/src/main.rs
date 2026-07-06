@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use colorgrad::preset::viridis;
 use geomutil_util::{Point2, Point3};
-use lammps_util_rust::{process_results_dir, DumpFile, IteratorAvg, XYZ};
+use lammps_util::{process_results_dir, DumpFile, IteratorAvg, XYZ};
 use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, IntoDrawingArea},
@@ -85,9 +85,9 @@ impl SurfaceValues {
         xyz.into_iter()
             .map(|p| {
                 Point3::from([
-                    (p.x - x_lo) / square_width,
-                    (p.y - y_lo) / square_width,
-                    p.z,
+                    (p.x as f32 - x_lo) / square_width,
+                    (p.y as f32 - y_lo) / square_width,
+                    p.z as f32,
                 ])
             })
             .filter(|p| p.x >= 0.0 && p.x <= x_cnt_f32 && p.y >= 0.0 && p.y <= y_cnt_f32)
@@ -215,12 +215,13 @@ fn save_results(path: &Path, values: &SurfaceValues) -> Result<()> {
 
 fn analyze_single_run(path: &Path, square_width: f64, zero_lvl: f64) -> Result<SurfaceValues> {
     let dump_final = DumpFile::read(&path.join("dump.final_no_cluster"), &[])?;
-    let snapshot = dump_final.get_snapshots()[0];
+    let snapshot = &dump_final.get_snapshots()[0];
+    let sym_box = snapshot.get_symbox();
     let domain = Domain::new(
-        Point2::from([snapshot.sym_box.xlo as f32, snapshot.sym_box.ylo as f32]),
-        Point2::from([snapshot.sym_box.xhi as f32, snapshot.sym_box.yhi as f32]),
+        Point2::from([sym_box.bbox.lower[0] as f32, sym_box.bbox.lower[1] as f32]),
+        Point2::from([sym_box.bbox.upper[0] as f32, sym_box.bbox.upper[1] as f32]),
     );
-    let coords = snapshot.get_coordinates();
+    let coords = lammps_util::xyz::xyz_vec_from_snapshot(snapshot);
     let values = get_surface_values(coords, &domain, square_width as f32, zero_lvl as f32);
     save_results(path, &values)?;
     Ok(values)
@@ -253,8 +254,8 @@ fn avg_surface_values(values: &[SurfaceValues]) -> Option<(SurfaceValues, Surfac
     ))
 }
 
-fn analyze_results_dir(dir: &Path, threads: usize, square_width: f64, zero_lvl: f64) -> Result<()> {
-    let values = process_results_dir(dir, threads, move |dir| {
+fn analyze_results_dir(dir: &Path, _threads: usize, square_width: f64, zero_lvl: f64) -> Result<()> {
+    let values = process_results_dir(dir, move |dir| {
         analyze_single_run(&dir.path, square_width, zero_lvl)
     })?;
     let (avg, std) = avg_surface_values(

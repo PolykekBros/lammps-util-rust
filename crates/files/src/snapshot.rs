@@ -275,12 +275,13 @@ impl Snapshot {
         self.atoms[idx] = value;
     }
 
-    // pub fn get_zero_lvl(&self) -> f64 {
-    //     self.get_property("z")
-    //         .iter()
-    //         .copied()
-    //         .fold(f64::NEG_INFINITY, f64::max)
-    // }
+    #[must_use]
+    pub fn get_zero_lvl(&self) -> f64 {
+        self.get_property("z")
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max)
+    }
 
     // #[must_use]
     // pub fn get_coordinates(&self) -> Vec<XYZ> {

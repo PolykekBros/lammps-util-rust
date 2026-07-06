@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
-use lammps_util_rust::{crater_snapshot, process_results_dir, DumpFile, DumpSnapshot, IteratorAvg};
+use lammps_util::{crater_snapshot, process_results_dir, DumpFile, DumpSnapshot, IteratorAvg};
 use log::debug;
 use std::path::{Path, PathBuf};
 
@@ -60,20 +60,20 @@ fn get_crater_info(snapshot: &DumpSnapshot, zero_lvl: f64) -> String {
 
 fn analyze_single_run(dir: &Path, cutoff: f64, _depth: f64) -> Result<String> {
     let dump_input = DumpFile::read(&dir.join("dump.initial"), &[])?;
-    let snapshot_input = dump_input.get_snapshots()[0];
+    let snapshot_input = &dump_input.get_snapshots()[0];
     let zero_lvl = snapshot_input.get_zero_lvl();
     let dump_final = DumpFile::read(&dir.join("dump.final_no_cluster"), &[])?;
-    let snapshot_final = dump_final.get_snapshots()[0];
+    let snapshot_final = &dump_final.get_snapshots()[0];
     let snapshot_crater = crater_snapshot(snapshot_input, snapshot_final, cutoff, 3.0);
-    debug!("crater atoms: {}", snapshot_crater.atoms_count);
+    debug!("crater atoms: {}", snapshot_crater.get_atoms_count());
     let info = get_crater_info(&snapshot_crater, zero_lvl);
     let dump_crater = DumpFile::new(vec![snapshot_crater]);
     dump_crater.save(&dir.join("dump.crater"))?;
     Ok(info)
 }
 
-fn analyze_results_dir(dir: &Path, threads: usize, cutoff: f64, depth: f64) -> Result<String> {
-    let results = process_results_dir(dir, threads, |dir| {
+fn analyze_results_dir(dir: &Path, _threads: usize, cutoff: f64, depth: f64) -> Result<String> {
+    let results = process_results_dir(dir, |dir| {
         analyze_single_run(&dir.path, cutoff, depth)
     })?;
     let info = results

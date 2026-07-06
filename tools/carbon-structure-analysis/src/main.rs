@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use lammps_util_rust::{DumpFile, DumpSnapshot, XYZ};
+use lammps_util::{DumpFile, DumpSnapshot, XYZ};
 use log::info;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -22,17 +22,16 @@ fn load_snapshot(path: &Path) -> Result<DumpSnapshot> {
         "Failed to read .dump file: {}",
         path.to_string_lossy()
     ))?;
-    let snapshot = dump.get_snapshots()[0];
-    Ok(snapshot.to_owned())
+    let snapshot = dump.get_snapshots()[0].clone();
+    Ok(snapshot)
 }
 
 fn get_carbon_atoms(snapshot: &DumpSnapshot, type_id: usize) -> Vec<XYZ> {
-    let coords = snapshot.get_coordinates();
+    let coords = lammps_util::xyz::xyz_vec_from_snapshot(snapshot);
     let types = snapshot.get_property("type");
     coords
-        .iter()
-        .filter(|xyz| (types[xyz.index()] as usize).eq(&type_id))
-        .copied()
+        .into_iter()
+        .filter(|xyz| (types[xyz.index] as usize).eq(&type_id))
         .collect()
 }
 
@@ -52,7 +51,7 @@ impl RingsFinder {
                 .filter(|atom| !inner.contains(atom))
                 .map(|atom| **atom)
                 .collect::<Vec<_>>();
-            adjecency_list.entry(atom).insert_entry(neighbours);
+            adjecency_list.entry(atom).or_insert(neighbours);
         }
         Self { adjecency_list }
     }
@@ -116,12 +115,13 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lammps_util::geomutil_util::Point3;
 
     #[test]
     fn test_triangle_graph() {
-        let node0 = XYZ::from([0.0, 0.0, 0.0], 0);
-        let node1 = XYZ::from([1.6, 0.0, 0.0], 0);
-        let node2 = XYZ::from([0.8, 1.3856, 0.0], 0);
+        let node0 = XYZ::new(Point3::from([0.0, 0.0, 0.0]), 0, false);
+        let node1 = XYZ::new(Point3::from([1.6, 0.0, 0.0]), 0, false);
+        let node2 = XYZ::new(Point3::from([0.8, 1.3856, 0.0]), 0, false);
 
         let nodes = vec![node0, node1, node2];
         let finder = RingsFinder::new(nodes);
@@ -138,10 +138,10 @@ mod tests {
 
     #[test]
     fn test_two_triangles_graph() {
-        let node0 = XYZ::from([0.0, 0.0, 0.0], 0);
-        let node1 = XYZ::from([1.6, 0.0, 0.0], 0);
-        let node2 = XYZ::from([0.8, 1.3856, 0.0], 0);
-        let node3 = XYZ::from([0.8, -1.3856, 0.0], 0);
+        let node0 = XYZ::new(Point3::from([0.0, 0.0, 0.0]), 0, false);
+        let node1 = XYZ::new(Point3::from([1.6, 0.0, 0.0]), 0, false);
+        let node2 = XYZ::new(Point3::from([0.8, 1.3856, 0.0]), 0, false);
+        let node3 = XYZ::new(Point3::from([0.8, -1.3856, 0.0]), 0, false);
 
         let nodes = vec![node0, node1, node2, node3];
         let finder = RingsFinder::new(nodes);

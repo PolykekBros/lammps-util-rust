@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use geomutil_util::{BoundingBox2, Point2, Point3};
-use lammps_util_rust::IteratorAvg;
+use lammps_util::IteratorAvg;
 use std::{
     array,
     fs::File,
@@ -19,8 +19,8 @@ struct Cli {
 }
 
 struct SurfaceData {
-    bbox: BoundingBox2,
-    data: Vec<Point3>,
+    bbox: BoundingBox2<f32>,
+    data: Vec<Point3<f32>>,
 }
 
 impl SurfaceData {
@@ -53,7 +53,7 @@ impl SurfaceData {
             bbox.dimensions().x / dim as f32,
             bbox.dimensions().y / dim as f32,
         ]);
-        let start = Point2::from([bbox.lower().x, bbox.lower().y]) + step / 2.0;
+        let start = Point2::from([bbox.lower.x, bbox.lower.y]) + step / 2.0;
         let data = iter::zip(values, (0..dim).flat_map(|i| (0..dim).map(move |j| (i, j))))
             .map(|(z, (i, j))| {
                 Point3::from([start.x + i as f32 * step.x, start.y + j as f32 * step.y, z])
@@ -62,7 +62,7 @@ impl SurfaceData {
         Ok(SurfaceData { bbox, data })
     }
 
-    fn radial_heights_distrib(&self, center: Point2) -> impl Iterator<Item = (usize, f32)> {
+    fn radial_heights_distrib(&self, center: Point2<f32>) -> impl Iterator<Item = (usize, f32)> {
         const ANGLE_MAX: usize = 360;
         const ANGLE_STEP: usize = 10;
         const ANGLE_START: usize = ANGLE_STEP / 2;

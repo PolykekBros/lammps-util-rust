@@ -12,10 +12,12 @@ use crate::{
     snapshot::SnapshotMeta,
 };
 
+#[derive(Clone, Debug)]
 pub struct Dump {
     timesteps: HashMap<u64, usize>,
     snapshots: Vec<Snapshot>,
 }
+
 
 impl Dump {
     #[must_use]

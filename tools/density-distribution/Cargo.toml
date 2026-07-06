@@ -9,4 +9,4 @@ log = { workspace=true }
 env_logger = { workspace=true }
 clap = { workspace = true }
 plotters = { workspace = true }
-# geomutil = { path = "/home/denis/Desktop/src/geomutil-rust" }
+geomutil = { path = "/home/denis/Desktop/src/geomutil-rust" }

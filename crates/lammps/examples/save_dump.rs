@@ -1,4 +1,4 @@
-use lammps_util_rust::DumpFile;
+use lammps_util::DumpFile;
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

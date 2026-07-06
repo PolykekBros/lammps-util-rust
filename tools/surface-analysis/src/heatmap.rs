@@ -1,30 +1,30 @@
 use anyhow::Result;
 use colorgrad::Gradient;
 use geomutil_util::Point2;
-use lammps_util_rust::range;
+use lammps_util::range;
 use plotters::{prelude::*, style::BLACK};
 
 use crate::SurfaceValues;
 
 #[derive(Debug, Clone)]
 pub struct Domain {
-    lo: Point2,
-    hi: Point2,
+    lo: Point2<f32>,
+    hi: Point2<f32>,
 }
 
 impl Domain {
-    pub fn new(a: Point2, b: Point2) -> Self {
+    pub fn new(a: Point2<f32>, b: Point2<f32>) -> Self {
         Domain {
             lo: Point2::from([a.x.min(b.x), a.y.min(b.y)]),
             hi: Point2::from([a.x.max(b.x), a.y.max(b.y)]),
         }
     }
 
-    pub fn lo(&self) -> Point2 {
+    pub fn lo(&self) -> Point2<f32> {
         self.lo
     }
 
-    pub fn hi(&self) -> Point2 {
+    pub fn hi(&self) -> Point2<f32> {
         self.hi
     }
 
@@ -92,7 +92,7 @@ impl<T: Gradient> Colorbar<T> {
             .draw()
             .unwrap();
         let plotting_area = chart_context.plotting_area();
-        range::f32(min, max, 256).for_each(|value| {
+        range::<f32>(min, max, 256).for_each(|value| {
             let color = self.color(value);
             let rectangle =
                 Rectangle::new([(0.0, value), (1.0, value + step)], filled_style(color));
