@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 lammps-util = { workspace = true }
-log = { workspace=true }
-env_logger = { workspace=true }
+lammps-files = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
-rayon = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
