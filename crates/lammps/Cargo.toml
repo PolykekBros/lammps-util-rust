@@ -12,6 +12,8 @@ kd-tree = { workspace=true }
 anyhow = { workspace=true }
 itertools = { workspace=true }
 rayon = { workspace=true }
+env_logger = { workspace = true }
+clap = { workspace = true }
 
 [dev-dependencies]
 assert_float_eq = { version = "1.1.4", features = ["std"] }

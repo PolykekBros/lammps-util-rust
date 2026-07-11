@@ -2,7 +2,7 @@
 #![allow(clippy::cast_sign_loss)]
 use anyhow::Result;
 use clap::Parser;
-use lammps_util::{DumpFile, DumpSnapshot, RunDir, get_clusters, process_results_dir};
+use lammps_util::{DumpFile, DumpSnapshot, MainWrapper, RunDir, Task, get_clusters, process_results_dir};
 use std::{collections::HashMap, iter, path::PathBuf};
 
 #[derive(Parser)]
@@ -112,34 +112,57 @@ fn do_single_dir(dir: &RunDir, types_map: &HashMap<usize, String>) -> Result<Vec
     Ok(clusters)
 }
 
-fn main() -> Result<()> {
-    env_logger::init();
-    let cli = Cli::parse();
-    let (types_map, type_names) = parse_types(&cli.particles);
-    let clusters = process_results_dir(&cli.results_dir, |run_dir| {
-        let result = do_single_dir(run_dir, &types_map);
-        eprintln!(
-            "{} {:?}",
-            run_dir.path.to_string_lossy(),
-            result.as_ref().map(Vec::len)
-        );
-        result
-    })?;
-    println!("# № {} ∑", type_names.join(" "));
-    for (run_dir, clusters) in clusters {
-        let counts = clusters.into_iter().map(|cluster| cluster.counts).fold(
-            vec![0; types_map.len()],
-            |mut agg, counts| {
-                iter::zip(&mut agg, counts).for_each(|(a, b)| *a += b);
-                agg
-            },
-        );
-        let sum = counts.iter().sum::<usize>();
-        print!("{}\t", run_dir.num);
-        for count in counts {
-            print!("{count}\t");
+struct SputteredAnalysisTask {
+    results_dir: PathBuf,
+    types_map: HashMap<usize, String>,
+    type_names: Vec<String>,
+}
+
+impl SputteredAnalysisTask {
+    fn new(results_dir: PathBuf, types_map: HashMap<usize, String>, type_names: Vec<String>) -> Self {
+        Self {
+            results_dir,
+            types_map,
+            type_names,
         }
-        println!("{sum}");
     }
-    Ok(())
+}
+
+impl Task for SputteredAnalysisTask {
+    type Output = ();
+    fn run(&self) -> Result<Self::Output> {
+        let clusters = process_results_dir(&self.results_dir, |run_dir| {
+            let result = do_single_dir(run_dir, &self.types_map);
+            eprintln!(
+                "{} {:?}",
+                run_dir.path.to_string_lossy(),
+                result.as_ref().map(Vec::len)
+            );
+            result
+        })?;
+        println!("# № {} ∑", self.type_names.join(" "));
+        for (run_dir, clusters) in clusters {
+            let counts = clusters.into_iter().map(|cluster| cluster.counts).fold(
+                vec![0; self.types_map.len()],
+                |mut agg, counts| {
+                    iter::zip(&mut agg, counts).for_each(|(a, b)| *a += b);
+                    agg
+                },
+            );
+            let sum = counts.iter().sum::<usize>();
+            print!("{}\t", run_dir.num);
+            for count in counts {
+                print!("{count}\t");
+            }
+            println!("{sum}");
+        }
+        Ok(())
+    }
+}
+
+fn main() -> Result<()> {
+    MainWrapper::<Cli>::default().run(|cli| {
+        let (types_map, type_names) = parse_types(&cli.particles);
+        Box::new(SputteredAnalysisTask::new(cli.results_dir, types_map, type_names))
+    })
 }

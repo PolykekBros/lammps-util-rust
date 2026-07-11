@@ -1,18 +1,69 @@
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::missing_errors_doc)]
+use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
+use anyhow::Result;
+
+pub trait DirTask: Clone {
+    type Output;
+    fn run<P: AsRef<Path>>(&self, dir: P) -> Result<Self::Output>;
+}
+
+pub trait Task {
+    type Output;
+    fn run(&self) -> Result<Self::Output>;
+}
+
+pub struct MainWrapper<T> {
+    cli: PhantomData<T>,
+}
+
+impl<T> Default for MainWrapper<T> {
+    fn default() -> Self {
+        Self { cli: PhantomData }
+    }
+}
+
+impl<T: clap::Parser> MainWrapper<T> {
+    pub fn run<F: FnMut(T) -> Box<dyn Task<Output = ()>>>(self, f: F) -> Result<()> {
+        env_logger::init();
+        let cli = T::parse();
+        let mut f = f;
+        f(cli).run()
+    }
+}
+
+pub struct SingleTask<T> {
+    pub run_dir: PathBuf,
+    pub task: T,
+}
+
+impl<T> SingleTask<T> {
+    pub fn new(run_dir: PathBuf, task: T) -> Self {
+        Self { run_dir, task }
+    }
+}
+
+impl<T> Task for SingleTask<T>
+where
+    T: DirTask,
+{
+    type Output = T::Output;
+    fn run(&self) -> Result<Self::Output> {
+        self.task.run(&self.run_dir)
+    }
+}
 mod clusterizer;
 mod math;
 pub mod xyz;
 
-use anyhow::Result;
 use lammps_files::Snapshot;
 use log::debug;
 use rayon::prelude::*;
 use std::{
     fs::read_dir,
     io,
-    path::{Path, PathBuf},
 };
 
 pub use clusterizer::{clusterize_snapshot, get_clusters};
@@ -20,8 +71,8 @@ pub use geomutil_util;
 pub use math::{range, IteratorAvg};
 pub use xyz::XYZ;
 
-pub use lammps_files::Snapshot as DumpSnapshot;
 pub use lammps_files::snapshot::copy_snapshot_with_indices;
+pub use lammps_files::Snapshot as DumpSnapshot;
 
 #[derive(Clone)]
 pub struct DumpFile(pub lammps_files::Dump);

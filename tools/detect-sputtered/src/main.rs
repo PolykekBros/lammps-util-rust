@@ -13,9 +13,9 @@ use clap::{Args, Parser, Subcommand};
 use lammps_files::{Dump, Snapshot};
 use lammps_util::{
     clusterize_snapshot, copy_snapshot_with_indices, get_clusters, process_results_dir,
+    DirTask, MainWrapper, SingleTask, Task,
 };
 use log::info;
-use std::marker::PhantomData;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -59,15 +59,6 @@ struct MultiCMD {
     results_dir: PathBuf,
 }
 
-trait DirTask: Clone {
-    type Output;
-    fn run<P: AsRef<Path>>(&self, dir: P) -> Result<Self::Output>;
-}
-
-trait Task {
-    type Output;
-    fn run(&self) -> Result<Self::Output>;
-}
 
 #[derive(Debug, Clone)]
 struct DetectSputteredTask {
@@ -145,26 +136,6 @@ where
     }
 }
 
-struct SingleTask<T> {
-    run_dir: PathBuf,
-    task: T,
-}
-
-impl<T> SingleTask<T> {
-    fn new(run_dir: PathBuf, task: T) -> Self {
-        Self { run_dir, task }
-    }
-}
-
-impl<T> Task for SingleTask<T>
-where
-    T: DirTask<Output = DetectSputteredTaskResult>,
-{
-    type Output = ();
-    fn run(&self) -> Result<Self::Output> {
-        DetectSputteredAndSaveTask::new(self.task.clone()).run(&self.run_dir)
-    }
-}
 
 struct MultiTask<T> {
     results_dir: PathBuf,
@@ -184,37 +155,18 @@ where
     type Output = ();
     fn run(&self) -> Result<Self::Output> {
         process_results_dir(&self.results_dir, |run_dir| {
-            SingleTask::new(run_dir.path.clone(), self.task.clone()).run()
+            SingleTask::new(run_dir.path.clone(), DetectSputteredAndSaveTask::new(self.task.clone())).run()
         })
         .map(|_| ())
     }
 }
 
-struct MainWrapper<T> {
-    cli: PhantomData<T>,
-}
-
-impl<T> Default for MainWrapper<T> {
-    fn default() -> Self {
-        Self { cli: PhantomData }
-    }
-}
-
-#[allow(clippy::unused_self)]
-impl<T: Parser> MainWrapper<T> {
-    fn run<F: FnMut(T) -> Box<dyn Task<Output = ()>>>(self, f: F) -> Result<()> {
-        env_logger::init();
-        let cli = T::parse();
-        let mut f = f;
-        f(cli).run()
-    }
-}
 
 fn main() -> Result<()> {
     MainWrapper::<Cli>::default().run(|cli| {
         let task = DetectSputteredTask::new(cli.threshold, cli.cutoff);
         match cli.command {
-            Commands::Single(args) => Box::new(SingleTask::new(args.run_dir, task)),
+            Commands::Single(args) => Box::new(SingleTask::new(args.run_dir, DetectSputteredAndSaveTask::new(task))),
             Commands::Multi(args) => Box::new(MultiTask::new(args.results_dir, task)),
         }
     })

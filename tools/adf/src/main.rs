@@ -1,8 +1,8 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use itertools::Itertools;
 use lammps_files::{Dump, Snapshot};
-use lammps_util::{XYZ, xyz::xyz_vec_from_snapshot};
+use lammps_util::{xyz::xyz_vec_from_snapshot, XYZ};
 use std::{f64, iter, path::PathBuf};
 
 #[derive(Parser)]
@@ -30,6 +30,30 @@ struct Cli {
 
     #[arg(long)]
     cutoff_j: f64,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Calculate ADF per slice along z
+    Slice(SliceArgs),
+}
+
+#[derive(Parser)]
+struct SliceArgs {
+    /// Lowest z coordinate (default: minimum z)
+    #[arg(long)]
+    zlo: Option<f64>,
+
+    /// Highest z coordinate (default: maximum z)
+    #[arg(long)]
+    zhi: Option<f64>,
+
+    /// Slice width (default: 10)
+    #[arg(long, default_value_t = 10.0)]
+    d: f64,
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -65,7 +89,7 @@ fn normalize(adf: Vec<((f64, f64), usize)>, n: usize) -> Vec<(f64, f64, usize)> 
 
 #[allow(clippy::cast_possible_truncation)]
 #[allow(clippy::cast_sign_loss)]
-fn get_adf(
+fn get_adf_for_slice(
     type_i: usize,
     type_j: usize,
     type_k: usize,
@@ -73,15 +97,38 @@ fn get_adf(
     cutoff_j: f64,
     n: usize,
     dump: &Snapshot,
+    z_lo: Option<f64>,
+    z_hi: Option<f64>,
 ) -> Vec<(f64, f64, usize)> {
     let bins = get_bins(n);
     let coords = xyz_vec_from_snapshot(dump);
     let d_types = dump.get_property("type");
+
+    let n_slice_atoms: usize = coords
+        .iter()
+        .filter(|atom| {
+            d_types[atom.index] as usize == type_k
+                && z_lo.map_or(true, |lo| atom.coords[2] >= lo)
+                && z_hi.map_or(true, |hi| atom.coords[2] < hi)
+        })
+        .count();
+
+    if n_slice_atoms == 0 {
+        return bins
+            .iter()
+            .map(|&(lo, hi)| (lo.midpoint(hi), 0.0, 0))
+            .collect();
+    }
+
     let kdtree = kd_tree::KdTree::build_by_ordered_float(coords);
     let adf = kdtree
         .items()
         .iter()
-        .filter(|atom| d_types[atom.index] as usize == type_k)
+        .filter(|atom| {
+            d_types[atom.index] as usize == type_k
+                && z_lo.map_or(true, |lo| atom.coords[2] >= lo)
+                && z_hi.map_or(true, |hi| atom.coords[2] < hi)
+        })
         .map(|atom_k| {
             let i_neigh = kdtree.within_radius(atom_k, cutoff_i);
             let j_neigh = {
@@ -129,10 +176,22 @@ fn get_adf(
                 a
             },
         );
-    normalize(adf, dump.get_atoms_count())
+    normalize(adf, n_slice_atoms)
 }
 
-#[allow(clippy::cast_precision_loss)]
+fn format_adf_table(adf: Vec<(f64, f64, usize)>) -> String {
+    let mut n_tot = 0.0;
+    adf.into_iter()
+        .map(|(t, g, n)| {
+            n_tot += n as f64;
+            [t, g, n_tot]
+                .into_iter()
+                .map(|x| format!("{x:10.4}"))
+                .join("\t")
+        })
+        .join("\n")
+}
+
 fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
@@ -143,26 +202,64 @@ fn main() -> Result<()> {
     let dump = Dump::open(dump_path.as_path(), &timesteps)?;
     println!("{}", dump.get_snapshots().len());
     let snapshot = &dump.get_snapshots()[0];
-    let adf = get_adf(
-        cli.type_i,
-        cli.type_j,
-        cli.type_k,
-        cli.cutoff_i,
-        cli.cutoff_j,
-        cli.n_bins,
-        snapshot,
-    );
-    let mut n_tot = 0.0;
-    let table = adf
-        .into_iter()
-        .map(|(t, g, n)| {
-            n_tot += n as f64;
-            [t, g, n_tot]
-                .into_iter()
-                .map(|x| format!("{x:10.4}"))
-                .join("\t")
-        })
-        .join("\n");
-    println!("# theta g\n{table}");
+    println!("# theta g");
+    match cli.command {
+        None => {
+            let adf = get_adf_for_slice(
+                cli.type_i,
+                cli.type_j,
+                cli.type_k,
+                cli.cutoff_i,
+                cli.cutoff_j,
+                cli.n_bins,
+                snapshot,
+                None,
+                None,
+            );
+            let table = format_adf_table(adf);
+            println!("{table}");
+        }
+        Some(Commands::Slice(slice_args)) => {
+            let coords = xyz_vec_from_snapshot(snapshot);
+            let zlo = slice_args.zlo.unwrap_or_else(|| {
+                coords
+                    .iter()
+                    .map(|a| a.coords[2])
+                    .fold(f64::INFINITY, f64::min)
+            });
+            let zhi = slice_args.zhi.unwrap_or_else(|| {
+                coords
+                    .iter()
+                    .map(|a| a.coords[2])
+                    .fold(f64::NEG_INFINITY, f64::max)
+            });
+            let d = slice_args.d;
+
+            let mut slice_idx = 0;
+            let mut current_zlo = zlo;
+            while current_zlo < zhi {
+                let slice_zhi = current_zlo + d;
+                let adf = get_adf_for_slice(
+                    cli.type_i,
+                    cli.type_j,
+                    cli.type_k,
+                    cli.cutoff_i,
+                    cli.cutoff_j,
+                    cli.n_bins,
+                    snapshot,
+                    Some(current_zlo),
+                    Some(slice_zhi),
+                );
+                let table = format_adf_table(adf);
+                println!(
+                    "# slice: {} {} {}\n{table}",
+                    slice_idx, current_zlo, slice_zhi
+                );
+                current_zlo += d;
+                slice_idx += 1;
+            }
+        }
+    }
+
     Ok(())
 }
