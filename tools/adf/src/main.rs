@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use itertools::Itertools;
 use lammps_files::{Dump, Snapshot};
 use lammps_util::{xyz::xyz_vec_from_snapshot, XYZ};
+use log::debug;
 use std::{f64, iter, path::PathBuf};
 
 #[derive(Parser)]
@@ -81,7 +82,7 @@ fn normalize(adf: Vec<((f64, f64), usize)>, n: usize) -> Vec<(f64, f64, usize)> 
             *val as f64 * theta.to_radians().sin() * d_theta
         })
         .sum();
-    println!("{int}");
+    debug!("{int}");
     adf.into_iter()
         .map(|((lo, hi), val)| (lo.midpoint(hi), val as f64 / int, val / n))
         .collect()
@@ -196,13 +197,44 @@ fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
     let dump_path = cli.dump_file;
+
+    let mut header = format!(
+        "# adf --n-bins {} --type-i {} --type-j {} --type-k {} --cutoff-i {} --cutoff-j {}",
+        cli.n_bins,
+        cli.type_i,
+        cli.type_j,
+        cli.type_k,
+        cli.cutoff_i,
+        cli.cutoff_j,
+    );
+
+    if let Some(timestep) = cli.timestep {
+        header.push_str(&format!(" --timestep {}", timestep));
+    }
+
+    match &cli.command {
+        None => {}
+        Some(Commands::Slice(slice_args)) => {
+            header.push_str(" slice");
+            if let Some(zlo) = slice_args.zlo {
+                header.push_str(&format!(" --zlo {}", zlo));
+            }
+            if let Some(zhi) = slice_args.zhi {
+                header.push_str(&format!(" --zhi {}", zhi));
+            }
+            header.push_str(&format!(" --d {}", slice_args.d));
+        }
+    }
+
+    header.push_str(&format!(" {}", dump_path.display()));
+    println!("{header}");
+    println!("# theta g");
     let timesteps = cli
         .timestep
         .map_or_else(Vec::new, |timestep| vec![timestep]);
     let dump = Dump::open(dump_path.as_path(), &timesteps)?;
     println!("{}", dump.get_snapshots().len());
     let snapshot = &dump.get_snapshots()[0];
-    println!("# theta g");
     match cli.command {
         None => {
             let adf = get_adf_for_slice(
