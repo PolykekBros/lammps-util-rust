@@ -200,12 +200,7 @@ fn main() -> Result<()> {
 
     let mut header = format!(
         "# adf --n-bins {} --type-i {} --type-j {} --type-k {} --cutoff-i {} --cutoff-j {}",
-        cli.n_bins,
-        cli.type_i,
-        cli.type_j,
-        cli.type_k,
-        cli.cutoff_i,
-        cli.cutoff_j,
+        cli.n_bins, cli.type_i, cli.type_j, cli.type_k, cli.cutoff_i, cli.cutoff_j,
     );
 
     if let Some(timestep) = cli.timestep {
@@ -233,7 +228,6 @@ fn main() -> Result<()> {
         .timestep
         .map_or_else(Vec::new, |timestep| vec![timestep]);
     let dump = Dump::open(dump_path.as_path(), &timesteps)?;
-    println!("{}", dump.get_snapshots().len());
     let snapshot = &dump.get_snapshots()[0];
     match cli.command {
         None => {
