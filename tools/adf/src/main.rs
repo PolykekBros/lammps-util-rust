@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use itertools::Itertools;
-use lammps_files::{Dump, Snapshot};
+use lammps_files::Dump;
 use lammps_util::{xyz::xyz_vec_from_snapshot, XYZ};
 use log::debug;
 use std::{f64, iter, path::PathBuf};
@@ -97,54 +97,48 @@ fn get_adf_for_slice(
     cutoff_i: f64,
     cutoff_j: f64,
     n: usize,
-    dump: &Snapshot,
+    d_types: &[usize],
+    tree: &kd_tree::KdTree3<XYZ>,
     z_lo: Option<f64>,
     z_hi: Option<f64>,
 ) -> Vec<(f64, f64, usize)> {
     let bins = get_bins(n);
-    let coords = xyz_vec_from_snapshot(dump);
-    let d_types = dump.get_property("type");
-
-    let n_slice_atoms: usize = coords
+    let n_slice_atoms: usize = tree
+        .items()
         .iter()
         .filter(|atom| {
-            d_types[atom.index] as usize == type_k
+            d_types[atom.index] == type_k
                 && z_lo.map_or(true, |lo| atom.coords[2] >= lo)
                 && z_hi.map_or(true, |hi| atom.coords[2] < hi)
         })
         .count();
-
     if n_slice_atoms == 0 {
         return bins
             .iter()
             .map(|&(lo, hi)| (lo.midpoint(hi), 0.0, 0))
             .collect();
     }
-
-    let kdtree = kd_tree::KdTree::build_by_ordered_float(coords);
-    let adf = kdtree
+    let adf = tree
         .items()
         .iter()
         .filter(|atom| {
-            d_types[atom.index] as usize == type_k
+            d_types[atom.index] == type_k
                 && z_lo.map_or(true, |lo| atom.coords[2] >= lo)
                 && z_hi.map_or(true, |hi| atom.coords[2] < hi)
         })
         .map(|atom_k| {
-            let i_neigh = kdtree.within_radius(atom_k, cutoff_i);
+            let i_neigh = tree.within_radius(atom_k, cutoff_i);
             let j_neigh = {
-                let mut j_neigh = kdtree.within_radius(atom_k, cutoff_j);
+                let mut j_neigh = tree.within_radius(atom_k, cutoff_j);
                 j_neigh.retain(|atom_j| {
-                    d_types[atom_j.index] as usize == type_j && atom_j.index != atom_k.index
+                    d_types[atom_j.index] == type_j && atom_j.index != atom_k.index
                 });
                 j_neigh
             };
             let j_neigh_ref = &j_neigh;
             let angles = i_neigh
                 .iter()
-                .filter(|atom_i| {
-                    d_types[atom_i.index] as usize == type_i && atom_i.index != atom_k.index
-                })
+                .filter(|atom_i| d_types[atom_i.index] == type_i && atom_i.index != atom_k.index)
                 .flat_map(move |atom_i| {
                     j_neigh_ref
                         .iter()
@@ -193,6 +187,28 @@ fn format_adf_table(adf: Vec<(f64, f64, usize)>) -> String {
         .join("\n")
 }
 
+fn get_kdtree<P>(
+    dump_path: P,
+    timesteps: &[u64],
+    cutoff_i: f64,
+    cutoff_j: f64,
+) -> Result<(kd_tree::KdTree3<XYZ>, Vec<usize>)>
+where
+    P: AsRef<std::path::Path>,
+{
+    let dump = Dump::open(dump_path, &timesteps)?;
+    let snapshot = &dump.get_snapshots()[0];
+    let d_types = snapshot
+        .get_property("type")
+        .iter()
+        .copied()
+        .map(|t| t as usize)
+        .collect::<Vec<_>>();
+    let mut coords = xyz_vec_from_snapshot(snapshot);
+    XYZ::get_supercell_coords(&mut coords, snapshot.get_symbox(), cutoff_i.max(cutoff_j));
+    Ok((kd_tree::KdTree::build_by_ordered_float(coords), d_types))
+}
+
 fn main() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
@@ -227,8 +243,7 @@ fn main() -> Result<()> {
     let timesteps = cli
         .timestep
         .map_or_else(Vec::new, |timestep| vec![timestep]);
-    let dump = Dump::open(dump_path.as_path(), &timesteps)?;
-    let snapshot = &dump.get_snapshots()[0];
+    let (kdtree, d_type) = get_kdtree(dump_path, &timesteps, cli.cutoff_i, cli.cutoff_j)?;
     match cli.command {
         None => {
             let adf = get_adf_for_slice(
@@ -238,7 +253,8 @@ fn main() -> Result<()> {
                 cli.cutoff_i,
                 cli.cutoff_j,
                 cli.n_bins,
-                snapshot,
+                &d_type,
+                &kdtree,
                 None,
                 None,
             );
@@ -246,15 +262,16 @@ fn main() -> Result<()> {
             println!("{table}");
         }
         Some(Commands::Slice(slice_args)) => {
-            let coords = xyz_vec_from_snapshot(snapshot);
             let zlo = slice_args.zlo.unwrap_or_else(|| {
-                coords
+                kdtree
+                    .items()
                     .iter()
                     .map(|a| a.coords[2])
                     .fold(f64::INFINITY, f64::min)
             });
             let zhi = slice_args.zhi.unwrap_or_else(|| {
-                coords
+                kdtree
+                    .items()
                     .iter()
                     .map(|a| a.coords[2])
                     .fold(f64::NEG_INFINITY, f64::max)
@@ -272,7 +289,8 @@ fn main() -> Result<()> {
                     cli.cutoff_i,
                     cli.cutoff_j,
                     cli.n_bins,
-                    snapshot,
+                    &d_type,
+                    &kdtree,
                     Some(current_zlo),
                     Some(slice_zhi),
                 );
@@ -286,6 +304,5 @@ fn main() -> Result<()> {
             }
         }
     }
-
     Ok(())
 }

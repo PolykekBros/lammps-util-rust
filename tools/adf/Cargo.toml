@@ -6,10 +6,9 @@ edition = "2024"
 [dependencies]
 lammps-util = { workspace = true }
 lammps-files = { workspace = true }
-itertools = { workspace=true }
-log = { workspace=true }
-env_logger = { workspace=true }
+itertools = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
-kd-tree = { workspace=true }
-rayon = { workspace=true }
+kd-tree = { workspace = true }
