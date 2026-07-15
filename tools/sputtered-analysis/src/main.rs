@@ -31,6 +31,10 @@ struct DefaultArgs {
     #[arg(long, default_value = "dump.sputter")]
     dump_file: String,
 
+    /// Mass per type, ex. "Si:28,O:16" (falls back to dump mass or 1.0)
+    #[arg(long)]
+    mass: Option<String>,
+
     /// Results directories
     #[arg()]
     dirs: Vec<PathBuf>,
@@ -49,6 +53,10 @@ struct ClusterCompositionArgs {
     /// Dump file name (default: dump.sputter)
     #[arg(long, default_value = "dump.sputter")]
     dump_file: String,
+
+    /// Mass per type, ex. "Si:28,O:16" (falls back to dump mass or 1.0)
+    #[arg(long)]
+    mass: Option<String>,
 
     /// Results directories
     #[arg()]
@@ -131,6 +139,17 @@ fn parse_elements(s: &str) -> HashMap<usize, String> {
         .collect()
 }
 
+fn parse_mass(s: &str) -> HashMap<String, f64> {
+    s.split(',')
+        .map(|pair| {
+            let mut parts = pair.split(':');
+            let name = parts.next().unwrap().trim().to_string();
+            let m = parts.next().unwrap().trim().parse::<f64>().expect("invalid mass");
+            (name, m)
+        })
+        .collect()
+}
+
 fn cluster_composition_string(
     counts: &[usize],
     elements_map: &HashMap<usize, String>,
@@ -145,7 +164,11 @@ fn cluster_composition_string(
     parts.join("")
 }
 
-fn analyze_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> Vec<Cluster> {
+fn analyze_clusters(
+    dump: &DumpSnapshot,
+    types_map: &HashMap<usize, String>,
+    mass_map: Option<&HashMap<String, f64>>,
+) -> Vec<Cluster> {
     let id = dump.get_property("id");
     let atype = dump.get_property("type");
     let x = dump.get_property("x");
@@ -154,19 +177,29 @@ fn analyze_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> 
     let vx = dump.get_property("vx");
     let vy = dump.get_property("vy");
     let vz = dump.get_property("vz");
-    let mass = dump.get_property("mass");
+    let dump_mass = dump.get_property_checked("mass");
     get_clusters(dump)
         .into_values()
         .map(|atoms_idx| {
             let atoms = atoms_idx
                 .into_iter()
                 .map(|atom_idx| {
+                    let atom_type = atype[atom_idx] as usize;
+                    let m = if let Some(mass_map) = mass_map {
+                        types_map
+                            .get(&atom_type)
+                            .and_then(|name| mass_map.get(name))
+                            .copied()
+                            .unwrap_or_else(|| dump_mass.map_or(1.0, |m| m[atom_idx]))
+                    } else {
+                        dump_mass.map_or(1.0, |m| m[atom_idx])
+                    };
                     Atom::new(
                         id[atom_idx] as usize,
-                        atype[atom_idx] as usize,
+                        atom_type,
                         [x[atom_idx], y[atom_idx], z[atom_idx]],
                         [vx[atom_idx], vy[atom_idx], vz[atom_idx]],
-                        mass[atom_idx],
+                        m,
                     )
                 })
                 .collect::<Vec<_>>();
@@ -178,9 +211,10 @@ fn analyze_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> 
 fn do_single_file(
     path: &PathBuf,
     types_map: &HashMap<usize, String>,
+    mass_map: Option<&HashMap<String, f64>>,
 ) -> Result<Vec<Cluster>> {
     let dump = DumpFile::read(path, &[])?;
-    let clusters = analyze_clusters(&dump.get_snapshots()[0], types_map);
+    let clusters = analyze_clusters(&dump.get_snapshots()[0], types_map, mass_map);
     Ok(clusters)
 }
 
@@ -188,6 +222,7 @@ struct SputteredAnalysisTask {
     types_map: HashMap<usize, String>,
     type_names: Vec<String>,
     dump_file: String,
+    mass_map: Option<HashMap<String, f64>>,
     dirs: Vec<PathBuf>,
     dump_path: Option<PathBuf>,
 }
@@ -197,6 +232,7 @@ impl SputteredAnalysisTask {
         types_map: HashMap<usize, String>,
         type_names: Vec<String>,
         dump_file: String,
+        mass: Option<String>,
         dirs: Vec<PathBuf>,
         dump_path: Option<PathBuf>,
     ) -> Self {
@@ -204,6 +240,7 @@ impl SputteredAnalysisTask {
             types_map,
             type_names,
             dump_file,
+            mass_map: mass.as_deref().map(parse_mass),
             dirs,
             dump_path,
         }
@@ -216,7 +253,7 @@ impl Task for SputteredAnalysisTask {
         let mut all_clusters: Vec<(PathBuf, Vec<Cluster>)> = Vec::new();
 
         if let Some(ref path) = self.dump_path {
-            let clusters = do_single_file(path, &self.types_map)?;
+            let clusters = do_single_file(path, &self.types_map, self.mass_map.as_ref())?;
             all_clusters.push((path.clone(), clusters));
         } else if self.dirs.is_empty() {
             anyhow::bail!("no directories specified. Provide directories as positional arguments or use --dump-path.");
@@ -224,7 +261,7 @@ impl Task for SputteredAnalysisTask {
             for dir in &self.dirs {
                 let dump_path = dir.join(&self.dump_file);
                 let result = if dump_path.exists() {
-                    do_single_file(&dump_path, &self.types_map)
+                    do_single_file(&dump_path, &self.types_map, self.mass_map.as_ref())
                 } else {
                     Err(anyhow::anyhow!("dump file not found: {}", dump_path.display()))
                 };
@@ -268,6 +305,7 @@ impl Task for SputteredAnalysisTask {
 struct ClusterCompositionTask {
     elements_map: HashMap<usize, String>,
     dump_file: String,
+    mass_map: Option<HashMap<String, f64>>,
     dirs: Vec<PathBuf>,
     dump_path: Option<PathBuf>,
 }
@@ -276,12 +314,14 @@ impl ClusterCompositionTask {
     fn new(
         elements_map: HashMap<usize, String>,
         dump_file: String,
+        mass: Option<String>,
         dirs: Vec<PathBuf>,
         dump_path: Option<PathBuf>,
     ) -> Self {
         Self {
             elements_map,
             dump_file,
+            mass_map: mass.as_deref().map(parse_mass),
             dirs,
             dump_path,
         }
@@ -294,7 +334,7 @@ impl Task for ClusterCompositionTask {
         let mut per_dir_counts: Vec<HashMap<String, usize>> = Vec::new();
 
         if let Some(ref path) = self.dump_path {
-            let clusters = do_single_file(path, &self.elements_map)?;
+            let clusters = do_single_file(path, &self.elements_map, self.mass_map.as_ref())?;
             let mut counts = HashMap::new();
             for cluster in clusters {
                 let comp = cluster_composition_string(&cluster.counts, &self.elements_map);
@@ -307,7 +347,7 @@ impl Task for ClusterCompositionTask {
             for dir in &self.dirs {
                 let dump_path = dir.join(&self.dump_file);
                 let result = if dump_path.exists() {
-                    do_single_file(&dump_path, &self.elements_map)
+                    do_single_file(&dump_path, &self.elements_map, self.mass_map.as_ref())
                 } else {
                     Err(anyhow::anyhow!("dump file not found: {}", dump_path.display()))
                 };
@@ -367,6 +407,7 @@ fn main() -> Result<()> {
                 types_map,
                 type_names,
                 args.dump_file,
+                args.mass,
                 args.dirs,
                 args.dump_path,
             ))
@@ -376,6 +417,7 @@ fn main() -> Result<()> {
             Box::new(ClusterCompositionTask::new(
                 elements_map,
                 args.dump_file,
+                args.mass,
                 args.dirs,
                 args.dump_path,
             ))
