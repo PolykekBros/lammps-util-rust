@@ -1,9 +1,15 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
-use lammps_util::{DumpFile, DumpSnapshot, XYZ};
+use lammps_files::Dump;
+use lammps_util::{xyz::xyz_vec_from_snapshot, MainWrapper, Task, XYZ};
 use log::info;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{HashMap, VecDeque},
+    path::PathBuf,
+};
+
+const OUTER_CUTOFF: f64 = 1.75;
+const INNER_CUTOFF: f64 = 1.5;
 
 /// Analyze properties of carbon structres in a .dump file
 #[derive(Parser)]
@@ -17,99 +23,144 @@ struct Cli {
     carbon_id: usize,
 }
 
-fn load_snapshot(path: &Path) -> Result<DumpSnapshot> {
-    let dump = DumpFile::read(path, &[]).context(format!(
-        "Failed to read .dump file: {}",
-        path.to_string_lossy()
-    ))?;
-    let snapshot = dump.get_snapshots()[0].clone();
-    Ok(snapshot)
+#[derive(Clone, Debug)]
+struct CarbonAtomsExtractor {
+    dump_path: PathBuf,
+    carbon_type_id: usize,
 }
 
-fn get_carbon_atoms(snapshot: &DumpSnapshot, type_id: usize) -> Vec<XYZ> {
-    let coords = lammps_util::xyz::xyz_vec_from_snapshot(snapshot);
-    let types = snapshot.get_property("type");
-    coords
-        .into_iter()
-        .filter(|xyz| (types[xyz.index] as usize).eq(&type_id))
-        .collect()
+impl CarbonAtomsExtractor {
+    fn new(dump_path: PathBuf, carbon_type_id: usize) -> Self {
+        Self {
+            dump_path,
+            carbon_type_id,
+        }
+    }
+
+    fn carbon_atoms(self) -> Result<Vec<XYZ>> {
+        let dump = Dump::open(&self.dump_path, &[])?;
+        let snapshot = &dump.get_snapshots()[0];
+        let types = snapshot.get_property("type");
+        let mut coords = xyz_vec_from_snapshot(snapshot)
+            .into_iter()
+            .filter(|xyz| (types[xyz.index] as usize).eq(&self.carbon_type_id))
+            .collect();
+        XYZ::get_supercell_coords(&mut coords, snapshot.get_symbox(), OUTER_CUTOFF);
+        Ok(coords.into())
+    }
 }
 
 struct RingsFinder {
-    adjecency_list: HashMap<XYZ, Vec<XYZ>>,
+    adjacency_list: Vec<Vec<usize>>,
+    atoms: Vec<XYZ>,
+    visited: Vec<bool>,
 }
 
 impl RingsFinder {
     pub fn new(atoms: Vec<XYZ>) -> Self {
-        let mut adjecency_list = HashMap::new();
         let tree = kd_tree::KdTree::build_by_ordered_float(atoms.clone());
-        for atom in atoms {
-            let inner = tree.within_radius(&atom, 1.5);
-            let outer = tree.within_radius(&atom, 1.7);
-            let neighbours = outer
-                .iter()
-                .filter(|atom| !inner.contains(atom))
-                .map(|atom| **atom)
-                .collect::<Vec<_>>();
-            adjecency_list.entry(atom).or_insert(neighbours);
+        let atoms = tree.items().to_vec();
+        let index_map = atoms
+            .iter()
+            .enumerate()
+            .filter(|(_, atom)| !atom.is_ghost)
+            .map(|(idx, atom)| (atom.index, idx))
+            .collect::<HashMap<_, _>>();
+        let adjacency_list = atoms
+            .iter()
+            .filter(|atom| !atom.is_ghost)
+            .map(|atom| {
+                let inner = tree.within_radius(atom, INNER_CUTOFF);
+                let outer = tree.within_radius(atom, OUTER_CUTOFF);
+                outer
+                    .into_iter()
+                    .filter(|atom| !inner.contains(atom))
+                    .map(|atom| index_map[&atom.index])
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let visited = vec![false; atoms.len()];
+        info!("Adjacency list ({}) built", adjacency_list.len());
+        Self {
+            adjacency_list,
+            atoms,
+            visited,
         }
-        Self { adjecency_list }
     }
 
-    pub fn find(&self) -> HashMap<usize, usize> {
-        let mut rings = Vec::new();
-        for (&atom_begin, neighbours) in self.adjecency_list.iter() {
-            for &atom_end in neighbours {
-                if let Some(ring) = self.bfs(atom_begin, atom_end) {
-                    if !rings.contains(&ring) {
-                        rings.push(ring);
-                    }
-                }
-            }
-        }
+    pub fn find(mut self) -> HashMap<usize, usize> {
         let mut rings_cnt = HashMap::new();
-        for ring in rings {
-            rings_cnt
-                .entry(ring.len())
-                .and_modify(|c| *c += 1)
-                .or_insert(1);
+        for (start, neighbours) in self.adjacency_list.iter().enumerate() {
+            self.visited[start] = true;
+            let mut local_visisted = self.visited.clone();
+            for cnt in neighbours
+                .iter()
+                .copied()
+                .filter(|end| !self.visited[*end])
+                .filter_map(|end| self.bfs(start, end, &mut local_visisted))
+            {
+                *rings_cnt.entry(cnt).or_insert(0) += 1;
+            }
         }
         rings_cnt
     }
 
-    fn bfs(&self, atom_begin: XYZ, atom_end: XYZ) -> Option<HashSet<XYZ>> {
-        let mut queue = VecDeque::from([(atom_begin, HashSet::from([atom_begin]))]);
-        let mut visited = HashSet::new();
-        while let Some((atom, ring)) = queue.pop_front() {
-            if visited.contains(&atom) {
-                continue;
+    fn bfs(&self, start: usize, end: usize, local_visited: &mut Vec<bool>) -> Option<usize> {
+        assert_ne!(start, end);
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.extend(
+            self.adjacency_list[start]
+                .iter()
+                .filter(|&&idx| !self.visited[idx] && idx.ne(&end)),
+        );
+        let mut count = 1;
+        while let Some(current) = queue.pop_front() {
+            count += 1;
+            if current == end {
+                assert_ne!(count, 2);
+                return Some(count);
             }
-            visited.insert(atom);
-            for &atom_next in self.adjecency_list[&atom].iter() {
-                let mut ring = ring.clone();
-                if atom == atom_begin && atom_next == atom_end {
-                    continue;
-                }
-                ring.insert(atom_next);
-                if atom_next == atom_end {
-                    return Some(ring);
-                }
-                queue.push_back((atom_next, ring));
+            local_visited[current] = true;
+            for neighbor in self.adjacency_list[current]
+                .iter()
+                .filter(|&&idx| !local_visited[idx])
+            {
+                queue.push_front(*neighbor);
             }
         }
         None
     }
 }
 
+struct RingsFinderTask {
+    carbon_atoms_extractor: CarbonAtomsExtractor,
+}
+
+impl Task for RingsFinderTask {
+    type Output = ();
+    fn run(&self) -> Result<Self::Output> {
+        let carbon_atoms = self.carbon_atoms_extractor.clone().carbon_atoms()?;
+        let rings = RingsFinder::new(carbon_atoms).find();
+        println!("Rings: {rings:?}");
+        Ok(())
+    }
+}
+
+impl RingsFinderTask {
+    fn new(carbon_atoms_extractor: CarbonAtomsExtractor) -> Self {
+        Self {
+            carbon_atoms_extractor,
+        }
+    }
+}
+
 fn main() -> Result<()> {
-    env_logger::init();
-    let cli = Cli::parse();
-    let snapshot = load_snapshot(&cli.dump_file)?;
-    let atoms = get_carbon_atoms(&snapshot, cli.carbon_id);
-    info!("Loaded {} carbon atoms", atoms.len());
-    let rings = RingsFinder::new(atoms).find();
-    println!("Rings: {rings:?}");
-    Ok(())
+    MainWrapper::<Cli>::default().run(|cli| {
+        Box::new(RingsFinderTask::new(CarbonAtomsExtractor::new(
+            cli.dump_file,
+            cli.carbon_id,
+        )))
+    })
 }
 
 #[cfg(test)]
@@ -120,40 +171,40 @@ mod tests {
     #[test]
     fn test_triangle_graph() {
         let node0 = XYZ::new(Point3::from([0.0, 0.0, 0.0]), 0, false);
-        let node1 = XYZ::new(Point3::from([1.6, 0.0, 0.0]), 0, false);
-        let node2 = XYZ::new(Point3::from([0.8, 1.3856, 0.0]), 0, false);
-
+        let node1 = XYZ::new(Point3::from([1.6, 0.0, 0.0]), 1, false);
+        let node2 = XYZ::new(Point3::from([0.8, 1.3856, 0.0]), 2, false);
         let nodes = vec![node0, node1, node2];
         let finder = RingsFinder::new(nodes);
-
-        for (_, neighbours) in finder.adjecency_list.iter() {
+        assert_eq!(finder.adjacency_list.len(), 3);
+        assert_eq!(finder.atoms.len(), 3);
+        assert_eq!(finder.visited.len(), 3);
+        for neighbours in finder.adjacency_list.iter() {
             assert_eq!(neighbours.len(), 2);
         }
-
         let rings = finder.find();
         let expected_rings: HashMap<usize, usize> = HashMap::from([(3, 1)]);
-
         assert_eq!(rings, expected_rings);
     }
 
     #[test]
     fn test_two_triangles_graph() {
+        // TODO: fix this test
         let node0 = XYZ::new(Point3::from([0.0, 0.0, 0.0]), 0, false);
-        let node1 = XYZ::new(Point3::from([1.6, 0.0, 0.0]), 0, false);
-        let node2 = XYZ::new(Point3::from([0.8, 1.3856, 0.0]), 0, false);
-        let node3 = XYZ::new(Point3::from([0.8, -1.3856, 0.0]), 0, false);
-
+        let node1 = XYZ::new(Point3::from([1.6, 0.0, 0.0]), 1, false);
+        let node2 = XYZ::new(Point3::from([0.8, 1.3856, 0.0]), 2, false);
+        let node3 = XYZ::new(Point3::from([0.8, -1.3856, 0.0]), 3, false);
         let nodes = vec![node0, node1, node2, node3];
         let finder = RingsFinder::new(nodes);
-
-        assert_eq!(finder.adjecency_list[&node0].len(), 3);
-        assert_eq!(finder.adjecency_list[&node1].len(), 3);
-        assert_eq!(finder.adjecency_list[&node2].len(), 2);
-        assert_eq!(finder.adjecency_list[&node3].len(), 2);
-
+        let mut neigh_cnt = HashMap::from([(3, 2), (2, 2)]);
+        for neighs in finder.adjacency_list.iter() {
+            let cnt = neighs.len();
+            assert!(neigh_cnt.contains_key(&cnt));
+            neigh_cnt.entry(cnt).and_modify(|cnt| *cnt -= 1);
+        }
+        let neigh_cnt_expected = HashMap::from([(3, 0), (2, 0)]);
+        assert_eq!(neigh_cnt_expected, neigh_cnt);
         let rings = finder.find();
         let expected_rings: HashMap<usize, usize> = HashMap::from([(3, 2)]);
-
         assert_eq!(rings, expected_rings);
     }
 }

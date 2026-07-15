@@ -173,8 +173,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "env_logger",
  "kd-tree",
+ "lammps-files",
  "lammps-util",
  "log",
 ]
