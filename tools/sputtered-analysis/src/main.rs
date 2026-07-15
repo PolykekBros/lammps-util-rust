@@ -96,13 +96,8 @@ struct Cluster {
     angle: f64,
 }
 
-struct CompStats {
-    cluster_count: usize,
-    atom_count: usize,
-}
-
 impl Cluster {
-    fn new(atoms: &[Atom], types_map: &HashMap<usize, String>) -> Self {
+    fn new(atoms: &[Atom], types_map: &[(usize, String)]) -> Self {
         let mut counts = vec![0; types_map.len()];
         let mut mass = 0.0;
         let mut momentum = [0.0; 3];
@@ -124,16 +119,15 @@ impl Cluster {
     }
 }
 
-fn parse_types(s: &str) -> (HashMap<usize, String>, Vec<String>) {
-    let type_names = s
-        .split(',')
+fn parse_types(s: &str) -> Vec<(usize, String)> {
+    s.split(',')
         .map(|s| s.trim().to_string())
-        .collect::<Vec<_>>();
-    let types_map = type_names.iter().map(String::from).enumerate().collect();
-    (types_map, type_names)
+        .enumerate()
+        .map(|(i, name)| (i + 1, name))
+        .collect()
 }
 
-fn parse_elements(s: &str) -> HashMap<usize, String> {
+fn parse_elements(s: &str) -> Vec<(usize, String)> {
     s.split(',')
         .map(|pair| {
             let mut parts = pair.split(':');
@@ -157,10 +151,10 @@ fn parse_mass(s: &str) -> HashMap<String, f64> {
 
 fn cluster_composition_string(
     counts: &[usize],
-    elements_map: &HashMap<usize, String>,
+    elements_map: &[(usize, String)],
 ) -> String {
     let mut parts = Vec::new();
-    for (type_id, name) in elements_map.iter() {
+    for (type_id, name) in elements_map {
         let idx = type_id - 1;
         if idx < counts.len() && counts[idx] > 0 {
             parts.push(format!("{name}{}", counts[idx]));
@@ -171,7 +165,7 @@ fn cluster_composition_string(
 
 fn analyze_clusters(
     dump: &DumpSnapshot,
-    types_map: &HashMap<usize, String>,
+    types_map: &[(usize, String)],
     mass_map: Option<&HashMap<String, f64>>,
 ) -> Vec<Cluster> {
     let id = dump.get_property("id");
@@ -192,7 +186,9 @@ fn analyze_clusters(
                     let atom_type = atype[atom_idx] as usize;
                     let m = if let Some(mass_map) = mass_map {
                         types_map
-                            .get(&atom_type)
+                            .iter()
+                            .find(|(id, _)| *id == atom_type)
+                            .map(|(_, name)| name)
                             .and_then(|name| mass_map.get(name))
                             .copied()
                             .unwrap_or_else(|| dump_mass.map_or(1.0, |m| m[atom_idx]))
@@ -215,7 +211,7 @@ fn analyze_clusters(
 
 fn do_single_file(
     path: &PathBuf,
-    types_map: &HashMap<usize, String>,
+    types_map: &[(usize, String)],
     mass_map: Option<&HashMap<String, f64>>,
 ) -> Result<Vec<Cluster>> {
     let dump = DumpFile::read(path, &[])?;
@@ -224,7 +220,7 @@ fn do_single_file(
 }
 
 struct SputteredAnalysisTask {
-    types_map: HashMap<usize, String>,
+    types_map: Vec<(usize, String)>,
     type_names: Vec<String>,
     dump_file: String,
     mass_map: Option<HashMap<String, f64>>,
@@ -234,7 +230,7 @@ struct SputteredAnalysisTask {
 
 impl SputteredAnalysisTask {
     fn new(
-        types_map: HashMap<usize, String>,
+        types_map: Vec<(usize, String)>,
         type_names: Vec<String>,
         dump_file: String,
         mass: Option<String>,
@@ -307,8 +303,13 @@ impl Task for SputteredAnalysisTask {
     }
 }
 
+struct CompStats {
+    cluster_count: usize,
+    atom_count: usize,
+}
+
 struct ClusterCompositionTask {
-    elements_map: HashMap<usize, String>,
+    elements_map: Vec<(usize, String)>,
     dump_file: String,
     mass_map: Option<HashMap<String, f64>>,
     dirs: Vec<PathBuf>,
@@ -317,7 +318,7 @@ struct ClusterCompositionTask {
 
 impl ClusterCompositionTask {
     fn new(
-        elements_map: HashMap<usize, String>,
+        elements_map: Vec<(usize, String)>,
         dump_file: String,
         mass: Option<String>,
         dirs: Vec<PathBuf>,
@@ -419,7 +420,8 @@ impl Task for ClusterCompositionTask {
 fn main() -> Result<()> {
     MainWrapper::<Cli>::default().run(|cli| match cli.command {
         Commands::Default(args) => {
-            let (types_map, type_names) = parse_types(&args.particles);
+            let types_map = parse_types(&args.particles);
+            let type_names = types_map.iter().map(|(_, n)| n.clone()).collect();
             Box::new(SputteredAnalysisTask::new(
                 types_map,
                 type_names,
