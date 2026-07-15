@@ -108,6 +108,7 @@ fn get_adf_for_slice(
         .iter()
         .filter(|atom| {
             d_types[atom.index] == type_k
+                && !atom.is_ghost
                 && z_lo.map_or(true, |lo| atom.coords[2] >= lo)
                 && z_hi.map_or(true, |hi| atom.coords[2] < hi)
         })
@@ -123,6 +124,7 @@ fn get_adf_for_slice(
         .iter()
         .filter(|atom| {
             d_types[atom.index] == type_k
+                && !atom.is_ghost
                 && z_lo.map_or(true, |lo| atom.coords[2] >= lo)
                 && z_hi.map_or(true, |hi| atom.coords[2] < hi)
         })
