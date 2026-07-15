@@ -30,9 +30,8 @@ struct DefaultArgs {
     /// Dump file name (default: dump.sputter)
     #[arg(long, default_value = "dump.sputter")]
     dump_file: String,
-
-    /// Results directories (comma-separated or --dirs repeated)
-    #[arg(short, long, value_delimiter = ',')]
+    /// Results directories
+    #[arg()]
     dirs: Vec<PathBuf>,
 
     /// Path to a single dump file (overrides --dirs)
@@ -50,8 +49,8 @@ struct ClusterCompositionArgs {
     #[arg(long, default_value = "dump.sputter")]
     dump_file: String,
 
-    /// Results directories (comma-separated or --dirs repeated)
-    #[arg(short, long, value_delimiter = ',')]
+    /// Results directories
+    #[arg()]
     dirs: Vec<PathBuf>,
 
     /// Path to a single dump file (overrides --dirs)
