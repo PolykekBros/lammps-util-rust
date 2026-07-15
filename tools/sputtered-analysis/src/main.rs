@@ -96,6 +96,11 @@ struct Cluster {
     angle: f64,
 }
 
+struct CompStats {
+    cluster_count: usize,
+    atom_count: usize,
+}
+
 impl Cluster {
     fn new(atoms: &[Atom], types_map: &HashMap<usize, String>) -> Self {
         let mut counts = vec![0; types_map.len()];
@@ -331,16 +336,19 @@ impl ClusterCompositionTask {
 impl Task for ClusterCompositionTask {
     type Output = ();
     fn run(&self) -> Result<Self::Output> {
-        let mut per_dir_counts: Vec<HashMap<String, usize>> = Vec::new();
+        let mut per_dir_stats: Vec<HashMap<String, CompStats>> = Vec::new();
 
         if let Some(ref path) = self.dump_path {
             let clusters = do_single_file(path, &self.elements_map, self.mass_map.as_ref())?;
-            let mut counts = HashMap::new();
+            let mut stats = HashMap::new();
             for cluster in clusters {
                 let comp = cluster_composition_string(&cluster.counts, &self.elements_map);
-                *counts.entry(comp).or_default() += 1;
+                let atom_count: usize = cluster.counts.iter().sum();
+                let entry = stats.entry(comp).or_insert(CompStats { cluster_count: 0, atom_count: 0 });
+                entry.cluster_count += 1;
+                entry.atom_count += atom_count;
             }
-            per_dir_counts.push(counts);
+            per_dir_stats.push(stats);
         } else if self.dirs.is_empty() {
             anyhow::bail!("no directories specified. Provide directories as positional arguments or use --dump-path.");
         } else {
@@ -358,12 +366,15 @@ impl Task for ClusterCompositionTask {
                 );
                 match result {
                     Ok(clusters) => {
-                        let mut counts = HashMap::new();
+                        let mut stats = HashMap::new();
                         for cluster in clusters {
                             let comp = cluster_composition_string(&cluster.counts, &self.elements_map);
-                            *counts.entry(comp).or_default() += 1;
+                            let atom_count: usize = cluster.counts.iter().sum();
+                            let entry = stats.entry(comp).or_insert(CompStats { cluster_count: 0, atom_count: 0 });
+                            entry.cluster_count += 1;
+                            entry.atom_count += atom_count;
                         }
-                        per_dir_counts.push(counts);
+                        per_dir_stats.push(stats);
                     }
                     Err(e) => {
                         eprintln!("error processing '{}': {e}", dir.display());
@@ -373,27 +384,33 @@ impl Task for ClusterCompositionTask {
             }
         }
 
-        if per_dir_counts.is_empty() {
+        if per_dir_stats.is_empty() {
             anyhow::bail!("no clusters found in any directory");
         }
 
-        let n_dirs = per_dir_counts.len();
-        let mut total_counts: HashMap<String, usize> = HashMap::new();
-        for dir_counts in &per_dir_counts {
-            for (comp, count) in dir_counts {
-                *total_counts.entry(comp.clone()).or_default() += count;
+        let n_dirs = per_dir_stats.len();
+        let mut total_stats: HashMap<String, CompStats> = HashMap::new();
+        for dir_stats in &per_dir_stats {
+            for (comp, stats) in dir_stats {
+                let entry = total_stats.entry(comp.clone()).or_insert(CompStats { cluster_count: 0, atom_count: 0 });
+                entry.cluster_count += stats.cluster_count;
+                entry.atom_count += stats.atom_count;
             }
         }
 
-        let mut entries: Vec<_> = total_counts.into_iter().collect();
+        let mut entries: Vec<_> = total_stats.into_iter().collect();
         entries.sort_by(|(a, _), (b, _)| a.cmp(b));
 
+        let total_clusters: usize = entries.iter().map(|(_, s)| s.cluster_count).sum();
+        let total_atoms: usize = entries.iter().map(|(_, s)| s.atom_count).sum();
+
         println!("# Cluster Composition Counts (averaged across {n_dirs} dir(s))");
-        println!("# Composition\tTotal\tAvg");
-        for (comp, total) in entries {
-            let avg = total as f64 / n_dirs as f64;
-            println!("{comp}\t{total}\t{avg:.2}");
+        println!("# Composition\tClusters\tAtoms\tAvg Clusters");
+        for (comp, stats) in &entries {
+            let avg_clusters = stats.cluster_count as f64 / n_dirs as f64;
+            println!("{comp}\t{}\t{}\t{:.2}", stats.cluster_count, stats.atom_count, avg_clusters);
         }
+        println!("# Total\t{}\t{}\t", total_clusters, total_atoms);
 
         Ok(())
     }
