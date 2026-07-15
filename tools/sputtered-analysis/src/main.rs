@@ -2,6 +2,7 @@
 #![allow(clippy::cast_sign_loss)]
 use anyhow::Result;
 use clap::Parser;
+use clap::Subcommand;
 use lammps_util::{DumpFile, DumpSnapshot, MainWrapper, RunDir, Task, get_clusters, process_results_dir};
 use std::{collections::HashMap, iter, path::PathBuf};
 
@@ -10,9 +11,30 @@ use std::{collections::HashMap, iter, path::PathBuf};
 struct Cli {
     results_dir: PathBuf,
 
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Default analysis: count atoms by type per run
+    Default(DefaultArgs),
+    /// Print cluster element composition counts (e.g. Si1O2)
+    ClusterComposition(ClusterCompositionArgs),
+}
+
+#[derive(Parser)]
+struct DefaultArgs {
     /// Atom types "<type 1>,<type 2>,...,<type N>", ex. "Si,C,O"
     #[arg(short, long)]
     particles: String,
+}
+
+#[derive(Parser)]
+struct ClusterCompositionArgs {
+    /// Element to type mapping, ex. "Si:1,O:2"
+    #[arg(long)]
+    elements: String,
 }
 
 struct Atom {
@@ -76,6 +98,31 @@ fn parse_types(s: &str) -> (HashMap<usize, String>, Vec<String>) {
     (types_map, type_names)
 }
 
+fn parse_elements(s: &str) -> HashMap<usize, String> {
+    s.split(',')
+        .map(|pair| {
+            let mut parts = pair.split(':');
+            let name = parts.next().unwrap().trim().to_string();
+            let type_id = parts.next().unwrap().trim().parse::<usize>().expect("invalid type id");
+            (type_id, name)
+        })
+        .collect()
+}
+
+fn cluster_composition_string(
+    counts: &[usize],
+    elements_map: &HashMap<usize, String>,
+) -> String {
+    let mut parts = Vec::new();
+    for (type_id, name) in elements_map.iter() {
+        let idx = type_id - 1;
+        if idx < counts.len() && counts[idx] > 0 {
+            parts.push(format!("{name}{}", counts[idx]));
+        }
+    }
+    parts.join("")
+}
+
 fn analyze_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> Vec<Cluster> {
     let id = dump.get_property("id");
     let atype = dump.get_property("type");
@@ -107,7 +154,7 @@ fn analyze_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> 
 }
 
 fn do_single_dir(dir: &RunDir, types_map: &HashMap<usize, String>) -> Result<Vec<Cluster>> {
-    let dump = DumpFile::read(&dir.path.join("dump.sputter"), &[])?;
+    let dump = DumpFile::read(dir.path.join("dump.sputter"), &[])?;
     let clusters = analyze_clusters(&dump.get_snapshots()[0], types_map);
     Ok(clusters)
 }
@@ -160,9 +207,64 @@ impl Task for SputteredAnalysisTask {
     }
 }
 
+struct ClusterCompositionTask {
+    results_dir: PathBuf,
+    elements_map: HashMap<usize, String>,
+}
+
+impl ClusterCompositionTask {
+    fn new(results_dir: PathBuf, elements_map: HashMap<usize, String>) -> Self {
+        Self {
+            results_dir,
+            elements_map,
+        }
+    }
+}
+
+impl Task for ClusterCompositionTask {
+    type Output = ();
+    fn run(&self) -> Result<Self::Output> {
+        let mut composition_counts: HashMap<String, usize> = HashMap::new();
+
+        let clusters = process_results_dir(&self.results_dir, |run_dir| {
+            let result = do_single_dir(run_dir, &self.elements_map);
+            eprintln!(
+                "{} {:?}",
+                run_dir.path.to_string_lossy(),
+                result.as_ref().map(Vec::len)
+            );
+            result
+        })?;
+
+        for (_run_dir, clusters) in clusters {
+            for cluster in clusters {
+                let comp = cluster_composition_string(&cluster.counts, &self.elements_map);
+                *composition_counts.entry(comp).or_default() += 1;
+            }
+        }
+
+        let mut entries: Vec<_> = composition_counts.into_iter().collect();
+        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+        println!("# Cluster Composition Counts");
+        println!("# Composition\tCount");
+        for (comp, count) in entries {
+            println!("{comp}\t{count}");
+        }
+
+        Ok(())
+    }
+}
+
 fn main() -> Result<()> {
-    MainWrapper::<Cli>::default().run(|cli| {
-        let (types_map, type_names) = parse_types(&cli.particles);
-        Box::new(SputteredAnalysisTask::new(cli.results_dir, types_map, type_names))
+    MainWrapper::<Cli>::default().run(|cli| match cli.command {
+        Commands::Default(args) => {
+            let (types_map, type_names) = parse_types(&args.particles);
+            Box::new(SputteredAnalysisTask::new(cli.results_dir, types_map, type_names))
+        }
+        Commands::ClusterComposition(args) => {
+            let elements_map = parse_elements(&args.elements);
+            Box::new(ClusterCompositionTask::new(cli.results_dir, elements_map))
+        }
     })
 }
