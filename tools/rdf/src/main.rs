@@ -11,12 +11,12 @@
 #![allow(clippy::cast_sign_loss)]
 #![allow(clippy::cast_possible_truncation)]
 use clap::Parser;
+use clap::Subcommand;
 use kd_tree::KdTree3;
 use lammps_files::{Dump, Snapshot, snapshot::SymBox};
 use lammps_util::{XYZ, xyz::xyz_vec_from_snapshot};
 // use rayon::prelude::*;
-
-use std::{fmt, iter, path::PathBuf};
+use std::{fmt::{self, Write}, iter, path::PathBuf};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -35,6 +35,30 @@ struct Cli {
 
     #[arg(short, long)]
     n_bins: usize,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Calculate RDF per slice along z
+    Slice(SliceArgs),
+}
+
+#[derive(Parser)]
+struct SliceArgs {
+    /// Lowest z coordinate (default: minimum z)
+    #[arg(long)]
+    zlo: Option<f64>,
+
+    /// Highest z coordinate (default: maximum z)
+    #[arg(long)]
+    zhi: Option<f64>,
+
+    /// Slice width (default: 10)
+    #[arg(long, default_value_t = 10.0)]
+    d: f64,
 }
 
 fn get_bins(cutoff: f64, n: usize) -> Vec<f64> {
@@ -74,6 +98,8 @@ fn get_rdf_new(
     n: usize,
     cutoff: f64,
     type_pairs: &[(usize, usize)],
+    z_lo: Option<f64>,
+    z_hi: Option<f64>,
 ) -> Vec<f64> {
     let bins_vec = get_bins(cutoff, n);
     assert_eq!(bins_vec.len(), n * 2);
@@ -86,7 +112,7 @@ fn get_rdf_new(
     if type_pairs.is_empty() {
         let cols = 1 + 1;
         let mut table = make_table(bins, cols);
-        let g = calculate_rdf(snapshot, &kdtree, bins, cutoff, |_| true, |_| true);
+        let g = calculate_rdf(snapshot, &kdtree, bins, cutoff, |_| true, |_| true, z_lo, z_hi);
         assert_eq!(g.len(), bins.len());
         for (idx, g) in g.into_iter().enumerate() {
             table[idx * 2 + 1] = g;
@@ -104,6 +130,8 @@ fn get_rdf_new(
                 cutoff,
                 |atom| (atypes[atom.index] as usize).eq(ti),
                 |atom| (atypes[atom.index] as usize).eq(tj),
+                z_lo,
+                z_hi,
             );
             assert_eq!(g.len(), bins.len());
             for (row, g) in g.into_iter().enumerate() {
@@ -114,6 +142,7 @@ fn get_rdf_new(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn calculate_rdf<F1, F2>(
     snapshot: &Snapshot,
     kdtree: &KdTree3<XYZ>,
@@ -121,6 +150,8 @@ fn calculate_rdf<F1, F2>(
     cutoff: f64,
     atom_1_filter: F1,
     atom_2_filter: F2,
+    z_lo: Option<f64>,
+    z_hi: Option<f64>,
 ) -> Vec<f64>
 where
     F1: Fn(&&XYZ) -> bool,
@@ -131,6 +162,10 @@ where
         .iter()
         .filter(|atom| !atom.is_ghost)
         .filter(&atom_1_filter)
+        .filter(|atom| {
+            z_lo.is_none_or(|lo| atom.coords[2] >= lo)
+                && z_hi.is_none_or(|hi| atom.coords[2] < hi)
+        })
         .map(|atom| calculate_rdf_hist(kdtree, bins, cutoff, atom, &atom_2_filter))
         .fold(vec![0.0; bins.len()], |mut g, part_g| {
             iter::zip(&mut g, part_g).for_each(|(g, p_g)| *g += p_g);
@@ -141,6 +176,10 @@ where
         .iter()
         .filter(|atom| !atom.is_ghost)
         .filter(atom_1_filter)
+        .filter(|atom| {
+            z_lo.is_none_or(|lo| atom.coords[2] >= lo)
+                && z_hi.is_none_or(|hi| atom.coords[2] < hi)
+        })
         .count() as f64;
     let nj = kdtree
         .items()
@@ -250,25 +289,71 @@ fn get_type_pairs(mut types: Vec<usize>) -> Vec<(usize, usize)> {
         .collect()
 }
 
+fn get_kdtree()
+
 fn main() {
     env_logger::init();
-    let Cli {
-        dump_file,
-        types,
-        timestep,
-        cutoff,
-        n_bins,
-    } = Cli::parse();
-    let type_pairs = get_type_pairs(types);
-    let timesteps = timestep.map(|t| vec![t]).unwrap_or_default();
-    let dump = Dump::open(dump_file, &timesteps).unwrap();
+    let cli = Cli::parse();
+    let timesteps = cli.timestep.map(|t| vec![t]).unwrap_or_default();
+    let dump = Dump::open(&cli.dump_file, &timesteps).unwrap();
     let snapshot = &dump.get_snapshots()[0];
-    let table = get_rdf_new(snapshot, n_bins, cutoff, &type_pairs);
-    let header = make_rdf_table_header(&type_pairs);
-    print_table(
-        &table,
-        header.as_slice(),
-        table.len() / header.len(),
-        header.len(),
+
+    // Reproducibility header
+    let mut header = format!(
+        "# rdf --n-bins {} --cutoff {}",
+        cli.n_bins, cli.cutoff,
     );
+    if !cli.types.is_empty() {
+        let types_str = cli.types.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
+        write!(&mut header, " --types {types_str}").unwrap();
+    }
+    if let Some(timestep) = cli.timestep {
+        write!(&mut header, " --timestep {timestep}").unwrap();
+    }
+    match &cli.command {
+        None => {}
+        Some(Commands::Slice(slice_args)) => {
+            header.push_str(" slice");
+            if let Some(zlo) = slice_args.zlo {
+                write!(&mut header, " --zlo {zlo}").unwrap();
+            }
+            if let Some(zhi) = slice_args.zhi {
+                write!(&mut header, " --zhi {zhi}").unwrap();
+            }
+            write!(&mut header, " --d {}", slice_args.d).unwrap();
+        }
+    }
+    write!(&mut header, " {}", cli.dump_file.display()).unwrap();
+    println!("{header}");
+
+    let type_pairs = get_type_pairs(cli.types);
+    let table_header = make_rdf_table_header(&type_pairs);
+
+    match cli.command {
+        None => {
+            let table = get_rdf_new(snapshot, cli.n_bins, cli.cutoff, &type_pairs, None, None);
+            print_table(&table, &table_header, table.len() / table_header.len(), table_header.len());
+        }
+        Some(Commands::Slice(slice_args)) => {
+            let coords = xyz_vec_from_snapshot(snapshot);
+            let zlo = slice_args.zlo.unwrap_or_else(|| {
+                coords.iter().map(|a| a.coords[2]).fold(f64::INFINITY, f64::min)
+            });
+            let zhi = slice_args.zhi.unwrap_or_else(|| {
+                coords.iter().map(|a| a.coords[2]).fold(f64::NEG_INFINITY, f64::max)
+            });
+            let d = slice_args.d;
+
+            let mut slice_idx = 0;
+            let mut current_zlo = zlo;
+            while current_zlo < zhi {
+                let slice_zhi = current_zlo + d;
+                let table = get_rdf_new(snapshot, cli.n_bins, cli.cutoff, &type_pairs, Some(current_zlo), Some(slice_zhi));
+                println!("# slice: {slice_idx} {current_zlo} {slice_zhi}");
+                print_table(&table, &table_header, table.len() / table_header.len(), table_header.len());
+                current_zlo += d;
+                slice_idx += 1;
+            }
+        }
+    }
 }
