@@ -9,8 +9,6 @@ use std::{collections::HashMap, iter, path::PathBuf};
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    results_dir: PathBuf,
-
     #[command(subcommand)]
     command: Commands,
 }
@@ -28,6 +26,18 @@ struct DefaultArgs {
     /// Atom types "<type 1>,<type 2>,...,<type N>", ex. "Si,C,O"
     #[arg(short, long)]
     particles: String,
+
+    /// Dump file name (default: dump.sputter)
+    #[arg(long, default_value = "dump.sputter")]
+    dump_file: String,
+
+    /// Results directories (comma-separated or --dirs repeated)
+    #[arg(short, long, value_delimiter = ',')]
+    dirs: Vec<PathBuf>,
+
+    /// Path to a single dump file (overrides --dirs)
+    #[arg(long)]
+    dump_path: Option<PathBuf>,
 }
 
 #[derive(Parser)]
@@ -35,6 +45,18 @@ struct ClusterCompositionArgs {
     /// Element to type mapping, ex. "Si:1,O:2"
     #[arg(long)]
     elements: String,
+
+    /// Dump file name (default: dump.sputter)
+    #[arg(long, default_value = "dump.sputter")]
+    dump_file: String,
+
+    /// Results directories (comma-separated or --dirs repeated)
+    #[arg(short, long, value_delimiter = ',')]
+    dirs: Vec<PathBuf>,
+
+    /// Path to a single dump file (overrides --dirs)
+    #[arg(long)]
+    dump_path: Option<PathBuf>,
 }
 
 struct Atom {
@@ -153,24 +175,47 @@ fn analyze_clusters(dump: &DumpSnapshot, types_map: &HashMap<usize, String>) -> 
         .collect()
 }
 
-fn do_single_dir(dir: &RunDir, types_map: &HashMap<usize, String>) -> Result<Vec<Cluster>> {
-    let dump = DumpFile::read(dir.path.join("dump.sputter"), &[])?;
+fn do_single_dir(
+    dir: &RunDir,
+    types_map: &HashMap<usize, String>,
+    dump_file: &str,
+) -> Result<Vec<Cluster>> {
+    let dump = DumpFile::read(dir.path.join(dump_file), &[])?;
+    let clusters = analyze_clusters(&dump.get_snapshots()[0], types_map);
+    Ok(clusters)
+}
+
+fn do_single_file(
+    path: &PathBuf,
+    types_map: &HashMap<usize, String>,
+) -> Result<Vec<Cluster>> {
+    let dump = DumpFile::read(path, &[])?;
     let clusters = analyze_clusters(&dump.get_snapshots()[0], types_map);
     Ok(clusters)
 }
 
 struct SputteredAnalysisTask {
-    results_dir: PathBuf,
     types_map: HashMap<usize, String>,
     type_names: Vec<String>,
+    dump_file: String,
+    dirs: Vec<PathBuf>,
+    dump_path: Option<PathBuf>,
 }
 
 impl SputteredAnalysisTask {
-    fn new(results_dir: PathBuf, types_map: HashMap<usize, String>, type_names: Vec<String>) -> Self {
+    fn new(
+        types_map: HashMap<usize, String>,
+        type_names: Vec<String>,
+        dump_file: String,
+        dirs: Vec<PathBuf>,
+        dump_path: Option<PathBuf>,
+    ) -> Self {
         Self {
-            results_dir,
             types_map,
             type_names,
+            dump_file,
+            dirs,
+            dump_path,
         }
     }
 }
@@ -178,17 +223,43 @@ impl SputteredAnalysisTask {
 impl Task for SputteredAnalysisTask {
     type Output = ();
     fn run(&self) -> Result<Self::Output> {
-        let clusters = process_results_dir(&self.results_dir, |run_dir| {
-            let result = do_single_dir(run_dir, &self.types_map);
-            eprintln!(
-                "{} {:?}",
-                run_dir.path.to_string_lossy(),
-                result.as_ref().map(Vec::len)
-            );
-            result
-        })?;
+        let all_clusters = if let Some(ref path) = self.dump_path {
+            let clusters = do_single_file(path, &self.types_map)?;
+            vec![(RunDir { path: path.clone(), num: 0 }, clusters)]
+        } else if self.dirs.is_empty() {
+            anyhow::bail!("no directories specified. Use --dirs or --dump-path.");
+        } else {
+            let mut results = Vec::new();
+            for dir in &self.dirs {
+                match process_results_dir(dir, |run_dir| {
+                    let result = do_single_dir(run_dir, &self.types_map, &self.dump_file);
+                    eprintln!(
+                        "{} {:?}",
+                        run_dir.path.to_string_lossy(),
+                        &result.as_ref().map(Vec::len)
+                    );
+                    result
+                }) {
+                    Ok(r) => {
+                        if r.is_empty() {
+                            eprintln!(
+                                "warning: no numeric run directories found in '{}'",
+                                dir.display()
+                            );
+                        }
+                        results.extend(r);
+                    }
+                    Err(e) => {
+                        eprintln!("error processing '{}': {e}", dir.display());
+                        return Err(e);
+                    }
+                }
+            }
+            results
+        };
+
         println!("# № {} ∑", self.type_names.join(" "));
-        for (run_dir, clusters) in clusters {
+        for (run_dir, clusters) in all_clusters {
             let counts = clusters.into_iter().map(|cluster| cluster.counts).fold(
                 vec![0; self.types_map.len()],
                 |mut agg, counts| {
@@ -208,15 +279,24 @@ impl Task for SputteredAnalysisTask {
 }
 
 struct ClusterCompositionTask {
-    results_dir: PathBuf,
     elements_map: HashMap<usize, String>,
+    dump_file: String,
+    dirs: Vec<PathBuf>,
+    dump_path: Option<PathBuf>,
 }
 
 impl ClusterCompositionTask {
-    fn new(results_dir: PathBuf, elements_map: HashMap<usize, String>) -> Self {
+    fn new(
+        elements_map: HashMap<usize, String>,
+        dump_file: String,
+        dirs: Vec<PathBuf>,
+        dump_path: Option<PathBuf>,
+    ) -> Self {
         Self {
-            results_dir,
             elements_map,
+            dump_file,
+            dirs,
+            dump_path,
         }
     }
 }
@@ -224,32 +304,74 @@ impl ClusterCompositionTask {
 impl Task for ClusterCompositionTask {
     type Output = ();
     fn run(&self) -> Result<Self::Output> {
-        let mut composition_counts: HashMap<String, usize> = HashMap::new();
-
-        let clusters = process_results_dir(&self.results_dir, |run_dir| {
-            let result = do_single_dir(run_dir, &self.elements_map);
-            eprintln!(
-                "{} {:?}",
-                run_dir.path.to_string_lossy(),
-                result.as_ref().map(Vec::len)
-            );
-            result
-        })?;
-
-        for (_run_dir, clusters) in clusters {
+        let per_dir_counts: Vec<HashMap<String, usize>> = if let Some(ref path) = self.dump_path {
+            let clusters = do_single_file(path, &self.elements_map)?;
+            let mut counts = HashMap::new();
             for cluster in clusters {
                 let comp = cluster_composition_string(&cluster.counts, &self.elements_map);
-                *composition_counts.entry(comp).or_default() += 1;
+                *counts.entry(comp).or_default() += 1;
+            }
+            vec![counts]
+        } else if self.dirs.is_empty() {
+            anyhow::bail!("no directories specified. Use --dirs or --dump-path.");
+        } else {
+            let mut per_dir = Vec::new();
+            for dir in &self.dirs {
+                match process_results_dir(dir, |run_dir| {
+                    let result = do_single_dir(run_dir, &self.elements_map, &self.dump_file);
+                    eprintln!(
+                        "{} {:?}",
+                        run_dir.path.to_string_lossy(),
+                        &result.as_ref().map(Vec::len)
+                    );
+                    result
+                }) {
+                    Ok(r) => {
+                        if r.is_empty() {
+                            eprintln!(
+                                "warning: no numeric run directories found in '{}'",
+                                dir.display()
+                            );
+                            continue;
+                        }
+                        let mut counts = HashMap::new();
+                        for (_run_dir, clusters) in r {
+                            for cluster in clusters {
+                                let comp = cluster_composition_string(&cluster.counts, &self.elements_map);
+                                *counts.entry(comp).or_default() += 1;
+                            }
+                        }
+                        per_dir.push(counts);
+                    }
+                    Err(e) => {
+                        eprintln!("error processing '{}': {e}", dir.display());
+                        return Err(e);
+                    }
+                }
+            }
+            per_dir
+        };
+
+        if per_dir_counts.is_empty() {
+            anyhow::bail!("no clusters found in any directory");
+        }
+
+        let n_dirs = per_dir_counts.len();
+        let mut total_counts: HashMap<String, usize> = HashMap::new();
+        for dir_counts in &per_dir_counts {
+            for (comp, count) in dir_counts {
+                *total_counts.entry(comp.clone()).or_default() += count;
             }
         }
 
-        let mut entries: Vec<_> = composition_counts.into_iter().collect();
+        let mut entries: Vec<_> = total_counts.into_iter().collect();
         entries.sort_by(|(a, _), (b, _)| a.cmp(b));
 
-        println!("# Cluster Composition Counts");
-        println!("# Composition\tCount");
-        for (comp, count) in entries {
-            println!("{comp}\t{count}");
+        println!("# Cluster Composition Counts (averaged across {n_dirs} dir(s))");
+        println!("# Composition\tTotal\tAvg");
+        for (comp, total) in entries {
+            let avg = total as f64 / n_dirs as f64;
+            println!("{comp}\t{total}\t{avg:.2}");
         }
 
         Ok(())
@@ -260,11 +382,22 @@ fn main() -> Result<()> {
     MainWrapper::<Cli>::default().run(|cli| match cli.command {
         Commands::Default(args) => {
             let (types_map, type_names) = parse_types(&args.particles);
-            Box::new(SputteredAnalysisTask::new(cli.results_dir, types_map, type_names))
+            Box::new(SputteredAnalysisTask::new(
+                types_map,
+                type_names,
+                args.dump_file,
+                args.dirs,
+                args.dump_path,
+            ))
         }
         Commands::ClusterComposition(args) => {
             let elements_map = parse_elements(&args.elements);
-            Box::new(ClusterCompositionTask::new(cli.results_dir, elements_map))
+            Box::new(ClusterCompositionTask::new(
+                elements_map,
+                args.dump_file,
+                args.dirs,
+                args.dump_path,
+            ))
         }
     })
 }
